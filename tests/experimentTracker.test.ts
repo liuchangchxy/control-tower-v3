@@ -28,8 +28,15 @@ beforeAll(() => {
 });
 
 afterEach(() => {
-  if (fs.existsSync(experimentsFile)) fs.unlinkSync(experimentsFile);
-  if (fs.existsSync(runLogsDir)) fs.rmdirSync(runLogsDir);
+  // Clean up experiments file, any .corrupted backups, and .tmp files
+  if (fs.existsSync(runLogsDir)) {
+    for (const f of fs.readdirSync(runLogsDir)) {
+      if (f.startsWith('experiments')) {
+        fs.unlinkSync(path.join(runLogsDir, f));
+      }
+    }
+    try { fs.rmdirSync(runLogsDir); } catch { /* ignore if not empty */ }
+  }
 });
 
 describe('experimentTracker', () => {

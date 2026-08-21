@@ -313,19 +313,20 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
  */
 export async function updateProfile(relPath: string, config: Partial<ProfileConfig>): Promise<void> {
   const fullPath = resolveProfilePath(relPath);
+
+  // M13: Check writability first (before reading/validating)
+  const realUserDir = fs.realpathSync(getUserDir());
+  const realFullPath = fs.realpathSync(fullPath);
+  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
+    throw new Error(`Profile is read-only: ${relPath}. Only profiles in user/ can be modified.`);
+  }
+
   const existing = readEnvFile(fullPath);
   const merged = { ...existing, ...config };
 
   const validationErrors = validateProfile(merged);
   if (validationErrors.length > 0) {
     throw new Error(`Validation failed:\n${validationErrors.join('\n')}`);
-  }
-
-  // M13: Re-check writability right before write to prevent symlink swap
-  const realUserDir = fs.realpathSync(getUserDir());
-  const realFullPath = fs.realpathSync(fullPath);
-  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
-    throw new Error(`Profile is read-only: ${relPath}`);
   }
 
   writeEnvFileToDisk(fullPath, merged as Record<string, string | number | undefined>);
