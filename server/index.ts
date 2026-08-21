@@ -44,6 +44,6 @@ if (fs.existsSync(clientDist)) {
 // Recover state on startup
 recoverFromState().then(() => {
   app.listen(PORT, () => {
-    console.log(`Control Tower v2 running on http://localhost:${PORT}`);
+    console.log(`Control Tower v3 running on http://localhost:${PORT}`);
   });
 });
