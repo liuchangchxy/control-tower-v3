@@ -33,9 +33,9 @@ export interface ProgressEvent {
   progress: number;
   stage: string;
   label: string;
-  status?: 'active' | 'completed' | 'error';
+  status: 'active' | 'completed' | 'error'; // M21: aligned with server (was optional)
   message?: string;
-  timestamp?: number;
+  timestamp: number; // M21: aligned with server (was optional)
 }
 
 export interface GPUInfo {

@@ -15,6 +15,15 @@ const HOME = process.env.CONTROL_TOWER_HOME || process.cwd();
 const LOG_DIR = path.join(HOME, 'run-logs');
 const SAFE_NAME_RE = /[^a-zA-Z0-9_-]/g;
 
+// ── Concurrency lock (H2) ──────────────────────────────────────────────────
+
+let busy = false;
+async function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (busy) throw new Error('Operation already in progress');
+  busy = true;
+  try { return await fn(); } finally { busy = false; }
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 
 let processState: VLLMProcess = {
@@ -37,6 +46,7 @@ const emitter = new EventEmitter();
 let logTailer: { stop: () => void } | null = null;
 let stageEnteredAt: number = 0;
 let lastStage: LogStage | null = null;
+let recoveryPollInterval: ReturnType<typeof setInterval> | null = null;
 
 export function getStatus(): VLLMProcess {
   const uptime = processState.startedAt
@@ -58,15 +68,17 @@ export function onLogLine(callback: (line: string) => void): () => void {
 // ── Restart ────────────────────────────────────────────────────────────────
 
 export async function restart(): Promise<void> {
-  const profile = processState.profile;
-  if (!profile) throw new Error('No profile to restart with');
-  await stop();
-  // Wait for GPU memory to be released (CUDA processes take a moment)
-  for (let i = 0; i < 15; i++) {
-    if (await isGPUClean()) break;
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  await start(profile);
+  return withLock(async () => {
+    const profile = processState.profile;
+    if (!profile) throw new Error('No profile to restart with');
+    await _stop();
+    // Wait for GPU memory to be released (CUDA processes take a moment)
+    for (let i = 0; i < 15; i++) {
+      if (await isGPUClean()) break;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    await _start(profile);
+  });
 }
 
 // ── Command building ────────────────────────────────────────────────────────
@@ -75,6 +87,7 @@ interface BuiltCommand {
   cmd: string;
   args: string[];
   env: Record<string, string>;
+  fullCmd: string; // for PID recycling check (M4)
 }
 
 function buildVLLMCommand(profile: ProfileConfig, modelDir: string): BuiltCommand {
@@ -133,7 +146,9 @@ function buildVLLMCommand(profile: ProfileConfig, modelDir: string): BuiltComman
   }
 
   const venvPython = path.join(process.env.HOME || '/home/chang', 'vLLM-2080Ti-Definitive', '.venv', 'bin', 'python3');
-  return { cmd: fs.existsSync(venvPython) ? venvPython : 'python3', args, env };
+  const cmd = fs.existsSync(venvPython) ? venvPython : 'python3';
+  const fullCmd = `${cmd} ${args.join(' ')}`;
+  return { cmd, args, env, fullCmd };
 }
 
 // ── Profile resolution ─────────────────────────────────────────────────────
@@ -170,6 +185,10 @@ async function isGPUClean(): Promise<boolean> {
 // ── Start ───────────────────────────────────────────────────────────────────
 
 export async function start(profileRelPath: string): Promise<void> {
+  return withLock(() => _start(profileRelPath));
+}
+
+async function _start(profileRelPath: string): Promise<void> {
   if (processState.status !== 'stopped') {
     throw new Error(`Cannot start: status is ${processState.status}`);
   }
@@ -197,7 +216,7 @@ export async function start(profileRelPath: string): Promise<void> {
   const logFile = path.join(LOG_DIR, `vllm-${safeName}-${timestamp}.log`);
   const pidFile = path.join(LOG_DIR, `vllm-${safeName}-${timestamp}.pid`);
 
-  const { cmd, args, env } = buildVLLMCommand(profile, modelDir);
+  const { cmd, args, env, fullCmd } = buildVLLMCommand(profile, modelDir);
 
   updateState({ status: 'starting', profile: profileRelPath, profilePath, logFile, startedAt: Date.now(), servedName: profile.SERVED_NAME, port, progress: 0, healthDetail: 'spawning process' });
 
@@ -232,11 +251,16 @@ export async function start(profileRelPath: string): Promise<void> {
     child.stdout.on('data', handleChunk);
     child.stderr.on('data', handleChunk);
 
+    // Capture PID for exit handler staleness check (H3)
+    const myPid = child.pid;
+
     child.on('exit', (code, signal) => {
+      // Stale exit from old process — ignore (H3)
+      if (processState.pid !== myPid) return;
+
       logStream.end();
       stopMetricsScraping();
       if (code === 0) {
-        // Clean exit: reset to stopped state so start() can be called again
         updateState({ status: 'stopped', error: null, errorDiagnosis: null, progress: 0 });
         emitter.emit('progress', {
           stage: lastStage?.id ?? 'stopped',
@@ -247,7 +271,6 @@ export async function start(profileRelPath: string): Promise<void> {
           timestamp: Date.now(),
         });
       } else if (signal !== null) {
-        // SIGTERM/SIGKILL: we initiated shutdown, treat as clean
         updateState({ status: 'stopped', error: null, errorDiagnosis: null, progress: 0 });
         emitter.emit('progress', {
           stage: lastStage?.id ?? 'stopped',
@@ -258,7 +281,6 @@ export async function start(profileRelPath: string): Promise<void> {
           timestamp: Date.now(),
         });
       } else {
-        // Non-zero exit code: error
         updateState({ status: 'error', error: `Process exited with code ${code}`, progress: 0 });
         emitter.emit('progress', {
           stage: lastStage?.id ?? 'error',
@@ -271,9 +293,25 @@ export async function start(profileRelPath: string): Promise<void> {
       }
     });
 
+    // Handle spawn errors (M1) — e.g., binary not executable, missing shared lib
+    child.on('error', (err) => {
+      if (processState.pid !== myPid) return;
+      updateState({ status: 'error', error: `Process error: ${err.message}`, progress: 0 });
+      emitter.emit('progress', {
+        stage: 'error',
+        label: 'Error',
+        progress: 0,
+        status: 'error',
+        message: err.message,
+        timestamp: Date.now(),
+      });
+      stopMetricsScraping();
+      logStream.end();
+    });
+
     updateState({ pid: child.pid ?? null, status: 'loading', healthDetail: 'loading model', progress: 5 });
 
-    // Save state for restart recovery
+    // Save state for restart recovery (include fullCmd for M4)
     saveState({
       pid: child.pid ?? null,
       profile: profileRelPath,
@@ -333,7 +371,10 @@ function handleLogLine(line: string): void {
 
     // Server-ready is special: start metrics scraping after health check
     if (stage.id === 'server') {
+      // Capture PID at scheduling time to avoid stale health check (M2)
+      const gen = processState.pid;
       setTimeout(() => checkHealth().then(ready => {
+        if (processState.pid !== gen) return; // stale — new process started (M2)
         if (ready) {
           updateState({ status: 'ready', progress: 100, healthDetail: 'ready' });
           startMetricsScraping(processState.port);
@@ -367,13 +408,23 @@ function updateState(partial: Partial<VLLMProcess>): void {
 // ── Stop ────────────────────────────────────────────────────────────────────
 
 export async function stop(): Promise<void> {
+  return withLock(() => _stop());
+}
+
+async function _stop(): Promise<void> {
   // If we're still spawning, kill everything forcefully
   if (processState.status === 'starting') {
-    return kill();
+    return _kill();
   }
 
   if (processState.pid === null) {
     clearState();
+    return;
+  }
+
+  // Verify PID is still alive before sending signal (M4)
+  if (!isProcessAlive(processState.pid)) {
+    await cleanup();
     return;
   }
 
@@ -403,6 +454,10 @@ export async function stop(): Promise<void> {
 }
 
 export async function kill(): Promise<void> {
+  return withLock(() => _kill());
+}
+
+async function _kill(): Promise<void> {
   if (processState.pid !== null) {
     try { process.kill(-processState.pid, 'SIGKILL'); } catch {}
   }
@@ -413,8 +468,7 @@ export async function kill(): Promise<void> {
 async function killResidualWorkers(): Promise<void> {
   if (processState.pid === null) return;
   try {
-    // Only kill children if the parent PID is still our vLLM process
-    // (avoids killing children of a recycled PID)
+    // Only kill children if the parent PID is still our vLLM process (M4)
     const { stdout } = await execAsync(`ps -p ${processState.pid} -o args= 2>/dev/null || true`);
     if (stdout.includes('vllm') || stdout.includes('python3')) {
       await execAsync(`pkill -9 -P ${processState.pid} || true`);
@@ -491,9 +545,44 @@ export async function recoverFromState(): Promise<void> {
     if (ready) {
       startMetricsScraping(processState.port);
     }
+
+    // Start liveness polling for recovered processes (H1)
+    // Without the child process handle, we can't attach an exit handler.
+    // Poll every 10s to detect if the recovered process dies.
+    startRecoveryPoll();
   } else {
     clearState();
   }
+}
+
+function startRecoveryPoll(): void {
+  if (recoveryPollInterval) {
+    clearInterval(recoveryPollInterval);
+  }
+  recoveryPollInterval = setInterval(() => {
+    if (processState.pid === null || processState.status === 'stopped') {
+      if (recoveryPollInterval) {
+        clearInterval(recoveryPollInterval);
+        recoveryPollInterval = null;
+      }
+      return;
+    }
+    if (!isProcessAlive(processState.pid)) {
+      if (recoveryPollInterval) {
+        clearInterval(recoveryPollInterval);
+        recoveryPollInterval = null;
+      }
+      cleanup();
+      emitter.emit('progress', {
+        stage: 'stopped',
+        label: 'Stopped',
+        progress: 0,
+        status: 'completed',
+        message: 'Recovered process died unexpectedly',
+        timestamp: Date.now(),
+      });
+    }
+  }, 10000);
 }
 
 function startLogTailer(logFile: string): void {

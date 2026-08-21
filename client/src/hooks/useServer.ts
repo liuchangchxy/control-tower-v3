@@ -6,7 +6,7 @@ export function useServerStatus() {
   return useQuery({
     queryKey: ['server-status'],
     queryFn: () => api.get<VLLMProcess>('/server/status'),
-    refetchInterval: 3000,
+    refetchInterval: 10000, // L11: reduced from 3s — SSE provides real-time updates
   });
 }
 

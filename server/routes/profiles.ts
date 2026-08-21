@@ -14,10 +14,13 @@ profilesRouter.get('/', async (_req, res) => {
 });
 
 profilesRouter.get('/templates', async (_req, res) => {
-  // Templates are just profiles in the templates/ directory
-  const all = await profileMgr.listProfiles();
-  const templates = all.filter(p => p.name.startsWith('templates/'));
-  res.json({ ok: true, data: templates });
+  try {
+    const all = await profileMgr.listProfiles();
+    const templates = all.filter(p => p.name.startsWith('templates/'));
+    res.json({ ok: true, data: templates });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 profilesRouter.get('/:path(*)', async (req, res) => {

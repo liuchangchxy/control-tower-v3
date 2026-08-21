@@ -19,7 +19,7 @@ gpuRouter.get('/stream', (req, res) => {
   res.flushHeaders();
 
   const stop = startGPUStream(data => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { stop(); }
   });
 
   req.on('close', () => {

@@ -81,14 +81,17 @@ function computeQuantile(
 
   // Find the two buckets that bracket the target count
   let prevCount = 0;
+  const lastFiniteLe = buckets.filter(b => b.le !== Infinity).pop()?.le ?? 0;
   for (const bucket of buckets) {
     if (bucket.count >= target) {
       // Linear interpolation within this bucket
       const range = bucket.count - prevCount;
-      if (range === 0) return bucket.le === Infinity ? buckets[buckets.length - 2]?.le ?? 0 : bucket.le;
+      if (range === 0) return bucket.le === Infinity ? lastFiniteLe : bucket.le;
       const fraction = (target - prevCount) / range;
       const prevLe = prevCount === 0 ? 0 : buckets[buckets.indexOf(bucket) - 1]?.le ?? 0;
-      return prevLe + fraction * (bucket.le - prevLe);
+      // Guard against Infinity interpolation (H7)
+      const effectiveLe = bucket.le === Infinity ? lastFiniteLe : bucket.le;
+      return prevLe + fraction * (effectiveLe - prevLe);
     }
     prevCount = bucket.count;
   }
@@ -179,6 +182,7 @@ export function startMetricsScraping(port: number = 8000): void {
   scrapingInterval = setInterval(async () => {
     try {
       const res = await fetch(`http://localhost:${port}/metrics`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`); // M9: check status before parsing
       const raw = await res.text();
       const parsed = parsePrometheusMetrics(raw);
       const now = Date.now();
@@ -211,6 +215,9 @@ export function stopMetricsScraping(): void {
     clearInterval(scrapingInterval);
     scrapingInterval = null;
   }
+  // Reset throughput state on stop to prevent phantom readings on restart (C3)
+  lastGenTokens = 0;
+  lastTimestamp = 0;
 }
 
 export function getLatestMetrics(): VLLMMetrics | null {

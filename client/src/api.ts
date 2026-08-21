@@ -9,6 +9,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
   });
+  // H9: Check HTTP status before attempting JSON parse
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
   const json: ApiResponse<T> = await res.json();
   if (!json.ok) throw new Error(json.error);
   return json.data;

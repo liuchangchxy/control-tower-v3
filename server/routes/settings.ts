@@ -26,7 +26,10 @@ function readConfig(): Record<string, unknown> {
 }
 
 function writeConfig(config: Record<string, unknown>): void {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  // Atomic write: temp file then rename (M17)
+  const tmpPath = CONFIG_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmpPath, CONFIG_PATH);
 }
 
 export const settingsRouter = Router();
@@ -65,8 +68,8 @@ settingsRouter.put('/', (req, res) => {
           errors.push(`${key} must be a number`);
         }
       } else if (field.type === 'string') {
-        if (typeof value !== 'string') {
-          errors.push(`${key} must be a string`);
+        if (typeof value !== 'string' || value.includes('..')) {
+          errors.push(`${key} must be a valid path without '..' segments`);
         }
       }
     }

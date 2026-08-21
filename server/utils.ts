@@ -48,7 +48,8 @@ export function parseEnvFile(content: string): Record<string, string | number> {
  */
 export function formatStringValue(value: string): string {
   if (/^[{\[]/.test(value.trim()) && /[}\]]$/.test(value.trim())) {
-    return `'${value}'`;
+    // Escape single quotes inside the wrapped value (M14)
+    return `'${value.replace(/'/g, "'\\''")}'`;
   }
   return value;
 }

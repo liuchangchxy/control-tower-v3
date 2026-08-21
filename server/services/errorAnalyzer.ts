@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ProfileConfig, Diagnosis } from '../types.js';
 
 // ── Error patterns (ordered by specificity) ──────────────────────────────────
@@ -27,7 +27,7 @@ function extractPort(logLines: string[], errorLineIdx: number): number | null {
   );
   for (const line of searchRange) {
     // Match patterns like "port 8000", "PORT=8000", ":8000"
-    const portMatch = line.match(/(?:port\s+|:)(\d{4,5})\b/i);
+    const portMatch = line.match(/(?:port\s*[=:]\s*|:)(\d{4,5})\b/i);
     if (portMatch) {
       const port = parseInt(portMatch[1], 10);
       if (port >= 1024 && port <= 65535) return port;
@@ -86,12 +86,14 @@ const PATTERNS: ErrorPattern[] = [
       const port = extractPort(logLines, errorLineIdx);
       if (port) {
         try {
-          const ssOutput = execSync(`ss -tlnp 2>/dev/null | grep ":${port} "`, {
+          // Use execFileSync to avoid shell injection (H12)
+          const ssOutput = execFileSync('ss', ['-tlnp'], {
             encoding: 'utf-8',
             timeout: 3000,
-          }).trim();
-          if (ssOutput) {
-            contextLines.push(`[port ${port} listeners] ${ssOutput}`);
+          });
+          const matching = ssOutput.split('\n').filter(l => l.includes(`:${port} `));
+          if (matching.length) {
+            contextLines.push(`[port ${port} listeners] ${matching.join('\n')}`);
           }
         } catch {
           // ss not available or no match — skip
@@ -108,6 +110,19 @@ const PATTERNS: ErrorPattern[] = [
       };
     },
   },
+  {
+    // Engine dead / EngineCore failed (M5)
+    test: (log) => /EngineDeadError|EngineCore failed/i.test(log),
+    diagnose: (_fullLog, logLines, errorLineIdx) => ({
+      errorType: 'engine_dead',
+      message: 'vLLM engine process crashed',
+      repairs: [
+        { description: 'Check GPU health and restart', profilePatch: {} },
+        { description: 'Reduce GPU_UTIL by 0.05', profilePatch: { GPU_UTIL: 0.83 } },
+      ],
+      context: extractContext(logLines, errorLineIdx),
+    }),
+  },
 ];
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -119,10 +134,12 @@ export function analyzeError(logLines: string[]): Diagnosis {
 
   const fullLog = logLines.join('\n');
 
-  // Find the first error line index for context extraction
+  // Find the first error line index for context extraction (M8)
+  // Match both generic error keywords AND pattern-specific keywords
   let errorLineIdx = 0;
+  const errorKeywords = /error|exception|traceback|failed|already in use|denied/i;
   for (let i = 0; i < logLines.length; i++) {
-    if (/error|exception|traceback/i.test(logLines[i])) {
+    if (errorKeywords.test(logLines[i])) {
       errorLineIdx = i;
       break;
     }

@@ -254,11 +254,24 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
 
   const handleSubmit = async () => {
     if (mode === 'create') {
-      await createMut.mutateAsync({ name, config });
-      navigate('/profiles');
+      const trimmedName = name.trim();
+      if (!trimmedName || /[/\\:*?"<>|]/.test(trimmedName)) {
+        alert('Profile name contains invalid characters');
+        return;
+      }
+      try {
+        await createMut.mutateAsync({ name: trimmedName, config });
+        navigate('/profiles');
+      } catch (err) {
+        // Error is handled by React Query error state
+      }
     } else if (editPath) {
-      await updateMut.mutateAsync({ path: editPath, config });
-      navigate('/profiles');
+      try {
+        await updateMut.mutateAsync({ path: editPath, config });
+        navigate('/profiles');
+      } catch (err) {
+        // Error is handled by React Query error state
+      }
     }
   };
 
@@ -321,7 +334,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
           />
         ) : (
           <input
-            type="number"
+            type={field.type === 'number' ? 'number' : 'text'}
             step={field.step}
             min={field.min}
             max={field.max}

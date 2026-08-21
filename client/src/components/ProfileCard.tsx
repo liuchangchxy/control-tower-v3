@@ -24,8 +24,8 @@ export function ProfileCard({ profile, onDelete }: Props) {
       <div className="flex flex-wrap gap-1 mb-3">
         {f.SERVED_NAME && <Badge tone="info">{f.SERVED_NAME}</Badge>}
         {f.MODEL_VARIANT && <Badge tone="neutral">{f.MODEL_VARIANT}</Badge>}
-        {f.MAX_MODEL_LEN && <Badge tone="neutral">{f.MAX_MODEL_LEN}</Badge>}
-        {f.GPU_UTIL && <Badge tone="warning">GPU {(Number(f.GPU_UTIL) * 100).toFixed(0)}%</Badge>}
+        {f.MAX_MODEL_LEN != null && <Badge tone="neutral">{f.MAX_MODEL_LEN}</Badge>}
+        {f.GPU_UTIL != null && <Badge tone="warning">GPU {(Number(f.GPU_UTIL) * 100).toFixed(0)}%</Badge>}
         {f.MTP_K !== undefined && Number(f.MTP_K) > 0 && <Badge tone="info">MTP×{f.MTP_K}</Badge>}
       </div>
 

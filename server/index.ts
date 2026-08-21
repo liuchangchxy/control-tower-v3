@@ -12,11 +12,17 @@ import { settingsRouter } from './routes/settings.js';
 import { recoverFromState } from './services/processManager.js';
 
 const HOME = process.env.CONTROL_TOWER_HOME || process.cwd();
-const config = JSON.parse(fs.readFileSync(path.join(HOME, 'config.json'), 'utf-8'));
-const PORT = config.port || 9090;
+let config: Record<string, unknown>;
+try {
+  config = JSON.parse(fs.readFileSync(path.join(HOME, 'config.json'), 'utf-8'));
+} catch (err: any) {
+  console.error(`Failed to load config.json from ${HOME}: ${err.message}`);
+  process.exit(1);
+}
+const PORT = (config as any).port || 9090;
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/] }));
 app.use(express.json());
 
 // API routes
@@ -40,6 +46,12 @@ if (fs.existsSync(clientDist)) {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
+
+// Global error handler — prevents Express from leaking stack traces (C1)
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ ok: false, error: 'Internal server error' });
+});
 
 // Recover state on startup
 recoverFromState().then(() => {

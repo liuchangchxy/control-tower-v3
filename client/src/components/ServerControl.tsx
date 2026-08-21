@@ -147,7 +147,14 @@ export function ServerControl() {
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="ghost" onClick={() => setShowStartModal(false)}>Cancel</Button>
             <Button variant="primary" disabled={!selectedProfile} loading={start.isPending}
-              onClick={async () => { await start.mutateAsync(selectedProfile); setShowStartModal(false); }}
+              onClick={async () => {
+                try {
+                  await start.mutateAsync(selectedProfile);
+                  setShowStartModal(false);
+                } catch {
+                  // Error is shown via start.error below
+                }
+              }}
             >Start</Button>
           </div>
           {start.error && <div className="text-red-400 text-sm mt-2">{(start.error as Error).message}</div>}

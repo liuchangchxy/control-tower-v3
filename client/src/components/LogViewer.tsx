@@ -157,7 +157,8 @@ export function LogViewer({ initialLines = [] }: Props) {
     a.href = url;
     a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
     a.click();
-    URL.revokeObjectURL(url);
+    // L10: defer revocation for Safari compatibility
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [filtered]);
 
   const toggleChunk = useCallback((stageId: string) => {

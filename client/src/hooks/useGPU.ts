@@ -4,9 +4,11 @@ import type { GPUInfo } from '../types';
 
 export function useGPU() {
   const [gpus, setGpus] = useState<GPUInfo[]>([]);
+  const [stale, setStale] = useState(false);
   useSSE<GPUInfo[]>('/gpu/stream', {
-    onMessage: setGpus,
-    onError: () => setGpus([]),
+    onMessage: (data) => { setGpus(data); setStale(false); },
+    // H8: Don't clear GPU data on transient disconnects — just mark stale
+    onError: () => setStale(true),
   });
-  return gpus;
+  return { gpus, stale };
 }

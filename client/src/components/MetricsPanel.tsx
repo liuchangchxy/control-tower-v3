@@ -16,7 +16,7 @@ function MetricRow({ label, value, unit, highlight }: { label: string; value: st
 }
 
 export function MetricsPanel() {
-  const metrics = useMetrics();
+  const { metrics } = useMetrics();
   const { data: status } = useServerStatus();
   const globalToast = useToast();
   const kvWarnedRef = useRef(false);

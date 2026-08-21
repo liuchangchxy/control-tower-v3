@@ -70,6 +70,7 @@ export async function getGPUSnapshot(): Promise<GPUInfo[]> {
 
   return csvOut.trim().split('\n').map(line => {
     const parts = line.split(',').map(p => p.trim());
+    if (parts.length < 10) return null; // validate column count (L5)
     const idx = parseInt(parts[0], 10);
     return {
       index: idx,
@@ -84,7 +85,7 @@ export async function getGPUSnapshot(): Promise<GPUInfo[]> {
       eccErrors: parseFloat(parts[9]),
       throttleReasons: smiFull ? parseThrottleReasons(smiFull, idx) : [],
     };
-  });
+  }).filter(Boolean) as GPUInfo[];
 }
 
 /**
@@ -95,7 +96,14 @@ export async function detectDisplayProcesses(): Promise<
   Array<{ gpu: number; pid: number; name: string }>
 > {
   const processes: Array<{ gpu: number; pid: number; name: string }> = [];
-  const gpuCount = 2; // detect up to 2 GPUs
+
+  // Dynamically detect GPU count instead of hardcoding (H13)
+  let gpuCount = 2;
+  try {
+    const { stdout: gpuList } = await execAsync('nvidia-smi -L', { timeout: 3000 });
+    const detected = (gpuList.match(/GPU \d+:/g) ?? []).length;
+    if (detected > 0) gpuCount = detected;
+  } catch { /* fallback to 2 */ }
 
   for (let i = 0; i < gpuCount; i++) {
     let stdout: string;

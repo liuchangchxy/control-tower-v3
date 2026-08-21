@@ -13,8 +13,8 @@ function ThrottleTag({ reason }: { reason: string }) {
 }
 
 export function GPUStats() {
-  const gpus = useGPU();
-  const metrics = useMetrics();
+  const { gpus } = useGPU();
+  const { metrics } = useMetrics();
   const kvPct = metrics ? Math.round(metrics.kvCacheUsagePerc * 100) : 0;
 
   // Dual-card comparison: only show if 2+ GPUs

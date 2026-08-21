@@ -133,7 +133,7 @@ export async function listProfiles(): Promise<ProfileSummary[]> {
     if (!fullPath.endsWith('.env')) return;
     const name = path.relative(profilesDir, fullPath).replace(/\\/g, '/');
     const realFullPath = fs.realpathSync(fullPath);
-    const writable = realFullPath.startsWith(realUserDir);
+    const writable = realFullPath.startsWith(realUserDir + path.sep);
     const fields = readEnvFile(fullPath);
     results.push({ name, path: fullPath, writable, fields: fields as Partial<ProfileConfig> });
   });
@@ -182,7 +182,8 @@ function getLauncherDir(): string {
   const home = process.env.CONTROL_TOWER_HOME ?? process.cwd();
   const configPath = path.join(home, 'config.json');
   if (!fs.existsSync(configPath)) {
-    throw new Error(`config.json not found at ${configPath}`);
+    console.error(`config.json not found at ${configPath}`);
+    throw new Error('Server configuration not found'); // L7: don't leak path
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as { launcherDir: string };
   return config.launcherDir;
@@ -192,8 +193,22 @@ function resolveProfilePath(relPath: string): string {
   const profilesDir = getProfilesDir();
   const fullPath = path.resolve(profilesDir, relPath);
 
-  // Prevent path traversal
-  if (!fullPath.startsWith(profilesDir)) {
+  // Prevent path traversal — use trailing separator to avoid prefix collision (H4)
+  // Also resolve symlinks to prevent symlink escape (H5)
+  let realFullPath: string;
+  try {
+    realFullPath = fs.realpathSync(fullPath);
+  } catch {
+    // File doesn't exist yet — realpathSync throws ENOENT
+    // Fall back to logical path check
+    if (!fullPath.startsWith(profilesDir + path.sep) && fullPath !== profilesDir) {
+      throw new Error('Invalid profile path');
+    }
+    throw new Error(`Profile not found: ${relPath}`);
+  }
+
+  const realProfilesDir = fs.realpathSync(profilesDir);
+  if (!realFullPath.startsWith(realProfilesDir + path.sep) && realFullPath !== realProfilesDir) {
     throw new Error('Invalid profile path');
   }
   if (!fs.existsSync(fullPath)) {
@@ -207,7 +222,8 @@ function ensureWritable(relPath: string): void {
   const fullPath = resolveProfilePath(relPath);
   const realFullPath = fs.realpathSync(fullPath);
 
-  if (!realFullPath.startsWith(realUserDir)) {
+  // Trailing separator prevents prefix collision (H4)
+  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
     throw new Error(`Profile is read-only: ${relPath}. Only profiles in user/ can be modified.`);
   }
 }
@@ -225,10 +241,6 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
     throw new Error('Profile name must contain at least one alphanumeric character');
   }
   const filePath = path.join(userDir, `${safeName}.env`);
-
-  if (fs.existsSync(filePath)) {
-    throw new Error(`Profile already exists: ${safeName}.env`);
-  }
 
   const defaults: Partial<ProfileConfig> = {
     MODEL_FAMILY: 'qwen',
@@ -249,14 +261,49 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
     TOOL_CALL_PARSER: 'hermes',
   };
 
-  const merged = { ...defaults, ...config };
+  // M11: Filter to known keys only — prevent arbitrary env var injection
+  const KNOWN_KEYS = new Set([
+    ...Object.keys(defaults),
+    'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN',
+    'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS', 'COMPILATION_CONFIG_JSON',
+    'TOOL_CALL_PARSER', 'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS',
+    'DRAFT_TENSOR_PARALLEL_SIZE', 'DRAFT_MODEL_TP_SIZE', 'SPECULATIVE_DECODE_METHOD',
+    'TOOL_CALL_PARSER_PATH', 'TOOL_CALL_LIMIT',
+    'ENABLE_PREFIX_CACHING_COMPILE', 'VLLM_ATTENTION_BACKEND_COMPILE',
+    'TORCH_COMPILE_CACHE_DIR', 'DISABLE_COMPILE_CACHE',
+    'SYSTEM_PROMPT', 'CHAT_TEMPLATE', 'TRUST_REMOTE_CODE',
+    'CUDA_VISIBLE_DEVICES', 'VLLM_HOST_IP', 'VLLM_RPC_BASE_URL',
+    'RAY_ADDRESS', 'RAY_OBJECT_STORE_MEMORY',
+    'VLLM_LOGGING_LEVEL', 'ENABLE_REQUEST_LOGGING', 'LOG_STATS',
+    'ENABLE_PROMPT_TOKEN_COUNTS', 'API_KEY',
+    'MULTI_VLM', 'VLM_INPUT_TYPE', 'SKIP_MODEL_INIT',
+    'LOAD_FORMAT', 'QUANTIZATION',
+    'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
+    'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
+    'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
+    'ATTENTION_BACKEND', 'PREFIX_CACHING',
+  ]);
+  const filtered: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(config)) {
+    if (KNOWN_KEYS.has(k) && v !== undefined) filtered[k] = v as string | number;
+  }
+  const merged = { ...defaults, ...filtered };
 
   const validationErrors = validateProfile(merged);
   if (validationErrors.length > 0) {
     throw new Error(`Validation failed:\n${validationErrors.join('\n')}`);
   }
 
-  writeEnvFileToDisk(filePath, merged as Record<string, string | number | undefined>);
+  // M12: Use exclusive create flag to prevent TOCTOU race
+  try {
+    const content = (await import('../utils.js')).writeEnvFile(merged as Record<string, string | number | undefined>);
+    fs.writeFileSync(filePath, content, { flag: 'wx', encoding: 'utf-8' });
+  } catch (err: any) {
+    if (err.code === 'EEXIST') {
+      throw new Error(`Profile already exists: ${safeName}.env`);
+    }
+    throw err;
+  }
   return filePath;
 }
 
@@ -264,7 +311,6 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
  * Update an existing user profile.
  */
 export async function updateProfile(relPath: string, config: Partial<ProfileConfig>): Promise<void> {
-  ensureWritable(relPath);
   const fullPath = resolveProfilePath(relPath);
   const existing = readEnvFile(fullPath);
   const merged = { ...existing, ...config };
@@ -272,6 +318,13 @@ export async function updateProfile(relPath: string, config: Partial<ProfileConf
   const validationErrors = validateProfile(merged);
   if (validationErrors.length > 0) {
     throw new Error(`Validation failed:\n${validationErrors.join('\n')}`);
+  }
+
+  // M13: Re-check writability right before write to prevent symlink swap
+  const realUserDir = fs.realpathSync(getUserDir());
+  const realFullPath = fs.realpathSync(fullPath);
+  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
+    throw new Error(`Profile is read-only: ${relPath}`);
   }
 
   writeEnvFileToDisk(fullPath, merged as Record<string, string | number | undefined>);

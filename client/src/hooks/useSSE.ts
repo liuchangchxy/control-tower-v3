@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 interface Options<T> {
   onMessage: (data: T) => void;
   enabled?: boolean;
-  /** Called when the SSE connection errors. EventSource will auto-reconnect. */
+  /** Called when the SSE connection gives up (readyState === CLOSED). */
   onError?: () => void;
 }
 
@@ -16,9 +16,11 @@ export function useSSE<T = unknown>(path: string, opts: Options<T>) {
 
     // All server routes are mounted under /api/
     const url = path.startsWith('/api/') ? path : `/api${path}`;
+    let cancelled = false; // L8: prevent stale events from old connections
     const es = new EventSource(url);
 
     es.onmessage = (e) => {
+      if (cancelled) return; // L8: guard against stale events
       try {
         const data = JSON.parse(e.data) as T;
         optsRef.current.onMessage(data);
@@ -28,11 +30,16 @@ export function useSSE<T = unknown>(path: string, opts: Options<T>) {
     };
 
     es.onerror = () => {
-      console.error('SSE error (will auto-reconnect):', optsRef.current);
-      // Don't close — let EventSource handle reconnection automatically
-      optsRef.current.onError?.();
+      // H8: Only fire onError when EventSource has given up (CLOSED),
+      // not on every reconnection attempt (CONNECTING state).
+      if (es.readyState === EventSource.CLOSED) {
+        optsRef.current.onError?.();
+      }
     };
 
-    return () => es.close();
+    return () => {
+      cancelled = true; // L8
+      es.close();
+    };
   }, [path, opts.enabled]);
 }

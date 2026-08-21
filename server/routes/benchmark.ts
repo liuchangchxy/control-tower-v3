@@ -12,6 +12,9 @@ import type { ApiResponse } from '../types.js';
 
 export const benchmarkRouter = Router();
 
+// Concurrency guard (M16)
+let benchmarkRunning = false;
+
 // GET /api/benchmark/presets — list available presets
 benchmarkRouter.get('/presets', (_req, res) => {
   res.json({ ok: true, data: BENCHMARK_PRESETS });
@@ -32,8 +35,14 @@ benchmarkRouter.get('/prompts', (_req, res) => {
 // Legacy API: { prompt?, promptId?, rounds? }
 benchmarkRouter.post('/run', async (req, res) => {
   try {
+    if (benchmarkRunning) {
+      return res.status(409).json({ ok: false, error: 'A benchmark is already in progress' });
+    }
+    benchmarkRunning = true;
+
     const status = getStatus();
     if (status.status !== 'ready') {
+      benchmarkRunning = false;
       return res.status(400).json({
         ok: false,
         error: `Server not ready (status: ${status.status})`,
@@ -47,11 +56,13 @@ benchmarkRouter.post('/run', async (req, res) => {
       customPrompt,
       prompt,      // legacy
       promptId,    // legacy
-      rounds = 1,
+      rounds: roundsRaw = 1,
     } = req.body;
 
-    if (rounds < 1 || rounds > 20) {
-      return res.status(400).json({ ok: false, error: 'rounds must be between 1 and 20' });
+    const rounds = Number(roundsRaw);
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 20) {
+      benchmarkRunning = false;
+      return res.status(400).json({ ok: false, error: 'rounds must be an integer between 1 and 20' });
     }
 
     // Resolve legacy prompt/promptId → customPrompt
@@ -111,5 +122,7 @@ benchmarkRouter.post('/run', async (req, res) => {
     res.json({ ok: true, data: { result, metrics } });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });
+  } finally {
+    benchmarkRunning = false;
   }
 });

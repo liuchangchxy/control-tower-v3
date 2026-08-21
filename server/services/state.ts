@@ -28,7 +28,9 @@ export function loadState(): PersistedState | null {
 }
 
 export function saveState(state: PersistedState): void {
-  fs.writeFileSync(getStateFile(), JSON.stringify(state, null, 2), 'utf-8');
+  const tmp = getStateFile() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf-8');
+  fs.renameSync(tmp, getStateFile());
 }
 
 export function clearState(): void {

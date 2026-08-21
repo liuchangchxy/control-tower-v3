@@ -6,12 +6,16 @@ export interface LogStage {
   progressEnd: number;
 }
 
+// STAGES order determines priority: first match wins (M6).
+// More specific patterns should come before broader ones.
 export const STAGES: LogStage[] = [
   { id: 'init',      label: 'Initializing',          pattern: /Initializing a VLLM/i,                                           progressStart: 0,  progressEnd: 5  },
   { id: 'weights',   label: 'Loading model weights', pattern: /Loading model|Loading weights|model loading/i,                   progressStart: 5,  progressEnd: 25 },
   { id: 'profile',   label: 'Profiling memory',       pattern: /profiled|Memory profiling|GPU memory|determining.*memory/i,      progressStart: 25, progressEnd: 45 },
   { id: 'cudagraph', label: 'Capturing CUDA graphs',  pattern: /Capturing CUDA graphs?|cudagraph capture/i,                      progressStart: 45, progressEnd: 55 },
-  { id: 'kvcache',   label: 'Allocating KV cache',   pattern: /^(?!.*CUDA graph).*KV cache memory|^(?!.*CUDA graph).*Allocating KV|token blocks|Memory pool/i, progressStart: 55, progressEnd: 65 },
+  // H6 fix: all branches guarded by single negative lookahead to prevent
+  // "Memory pool" or "token blocks" from matching during CUDA graph lines.
+  { id: 'kvcache',   label: 'Allocating KV cache',   pattern: /^(?!.*CUDA graph)(?:.*KV cache memory|.*Allocating KV|token blocks|Memory pool)/i, progressStart: 55, progressEnd: 65 },
   { id: 'compile',   label: 'Compiling kernels',      pattern: /Compiling|torch\.compile/i,                                       progressStart: 65, progressEnd: 85 },
   { id: 'server',    label: 'Starting server',        pattern: /Uvicorn|startup complete|listening on/i,                          progressStart: 85, progressEnd: 95 },
 ];
@@ -62,23 +66,24 @@ export function extractProgressPercent(line: string): number | null {
 
 /**
  * Find the latest completed stage for a set of log lines.
+ * Iterates in reverse for efficiency (L3).
  */
 export function findLatestStage(lines: string[]): LogStage | null {
-  let latest: LogStage | null = null;
-  for (const line of lines) {
-    const stage = parseLine(line);
-    if (stage) latest = stage;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const stage = parseLine(lines[i]);
+    if (stage) return stage;
   }
-  return latest;
+  return null;
 }
 
 /**
  * Interpolate progress within a stage. If a real percent is available from
- * the log line, use it; otherwise fall back to time-based estimation.
+ * the log line, use it for any stage that reports progress (M7 fix);
+ * otherwise fall back to time-based estimation.
  */
 export function interpolateProgress(stage: LogStage, secondsInStage: number, realPercent?: number | null): number {
-  if (realPercent != null && stage.id === 'weights') {
-    // For model loading, map tqdm 0-100% onto the stage's progress range
+  // Use real percentage for stages that report tqdm-style or explicit progress (M7)
+  if (realPercent != null && (stage.id === 'weights' || stage.id === 'compile')) {
     const range = stage.progressEnd - stage.progressStart;
     return Math.round(stage.progressStart + (realPercent / 100) * range);
   }

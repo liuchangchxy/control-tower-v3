@@ -48,10 +48,16 @@ serverRouter.get('/progress', (req, res) => {
   res.flushHeaders();
 
   const unsub = pm.onProgress(event => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { unsub(); }
   });
 
+  // Heartbeat to detect dead connections (M15)
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); unsub(); }
+  }, 15000);
+
   req.on('close', () => {
+    clearInterval(heartbeat);
     unsub();
   });
 });
@@ -88,11 +94,17 @@ serverRouter.get('/metrics/stream', (req, res) => {
   res.flushHeaders();
 
   const interval = setInterval(() => {
-    const latest = getLatestMetrics();
-    if (latest) {
-      res.write(`data: ${JSON.stringify(latest)}\n\n`);
+    try {
+      const latest = getLatestMetrics();
+      if (latest) {
+        res.write(`data: ${JSON.stringify(latest)}\n\n`);
+      }
+    } catch {
+      clearInterval(interval);
     }
   }, 2000);
+
+  res.on('error', () => clearInterval(interval));
 
   req.on('close', () => {
     clearInterval(interval);

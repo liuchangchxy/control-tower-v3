@@ -39,6 +39,9 @@ export function useRunBenchmark() {
       customPrompt?: string;
       rounds?: number;
     }) => api.post<DetailedBenchmarkRunResult>('/benchmark/run', vars),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['experiments'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['experiments'] });
+      qc.invalidateQueries({ queryKey: ['benchmark-presets'] }); // L9
+    },
   });
 }
