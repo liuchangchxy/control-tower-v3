@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+client/dist/
+
+# Runtime state
+state.json
+run-logs/*.log
+run-logs/*.pid
+run-logs/experiments.json
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

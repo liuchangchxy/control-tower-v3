@@ -1,0 +1,7 @@
+{
+  "port": 9092,
+  "launcherDir": "/home/chang/vLLM-2080Ti-Definitive",
+  "modelDir": "/home/chang/models/Qwen3.8-27B-GPTQ-Int4",
+  "logDir": "run-logs",
+  "stateFile": "state.json"
+}

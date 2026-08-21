@@ -1,0 +1,100 @@
+import { Router } from 'express';
+import * as pm from '../services/processManager.js';
+import { getLatestMetrics, getMetricsHistory } from '../services/vllmMetrics.js';
+import type { ApiResponse } from '../types.js';
+
+export const serverRouter = Router();
+
+serverRouter.get('/status', (_req, res) => {
+  const status = pm.getStatus();
+  res.json({ ok: true, data: status } satisfies ApiResponse<typeof status>);
+});
+
+serverRouter.post('/start', async (req, res) => {
+  try {
+    const { profile } = req.body;
+    if (!profile) {
+      return res.status(400).json({ ok: false, error: 'profile required' });
+    }
+    await pm.start(profile);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+serverRouter.post('/stop', async (_req, res) => {
+  try {
+    await pm.stop();
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+serverRouter.post('/kill', async (_req, res) => {
+  try {
+    await pm.kill();
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+serverRouter.get('/progress', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const unsub = pm.onProgress(event => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+
+  req.on('close', () => {
+    unsub();
+  });
+});
+
+// ── Restart ──────────────────────────────────────────────────────────────────
+
+serverRouter.post('/restart', async (_req, res) => {
+  try {
+    await pm.restart();
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// ── Metrics (snapshot + history) ─────────────────────────────────────────────
+
+serverRouter.get('/metrics', (_req, res) => {
+  const latest = getLatestMetrics();
+  res.json({ ok: true, data: latest });
+});
+
+serverRouter.get('/metrics/history', (_req, res) => {
+  const history = getMetricsHistory();
+  res.json({ ok: true, data: history });
+});
+
+// ── Metrics SSE stream ──────────────────────────────────────────────────────
+
+serverRouter.get('/metrics/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const interval = setInterval(() => {
+    const latest = getLatestMetrics();
+    if (latest) {
+      res.write(`data: ${JSON.stringify(latest)}\n\n`);
+    }
+  }, 2000);
+
+  req.on('close', () => {
+    clearInterval(interval);
+  });
+});
