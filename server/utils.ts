@@ -29,6 +29,8 @@ export function parseEnvFile(content: string): Record<string, string | number> {
     if ((value.startsWith("'") && value.endsWith("'")) ||
         (value.startsWith('"') && value.endsWith('"'))) {
       value = value.slice(1, -1);
+      // Unescape single-quote escape sequence from formatStringValue
+      value = value.replace(/'\\''/g, "'");
     }
 
     // Try to parse as number

@@ -336,7 +336,12 @@ export async function updateProfile(relPath: string, config: Partial<ProfileConf
  * Delete a user profile.
  */
 export async function deleteProfile(relPath: string): Promise<void> {
-  ensureWritable(relPath);
   const fullPath = resolveProfilePath(relPath);
+  // Re-check writability right before delete (TOCTOU protection, same as updateProfile)
+  const realUserDir = fs.realpathSync(getUserDir());
+  const realFullPath = fs.realpathSync(fullPath);
+  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
+    throw new Error(`Profile is read-only: ${relPath}. Only profiles in user/ can be modified.`);
+  }
   fs.unlinkSync(fullPath);
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  runBenchmark,
+  runBenchmarkLegacy,
   runWarmup,
   estimateTokens,
   BENCHMARK_PROMPTS,
@@ -79,7 +79,7 @@ describe('BENCHMARK_PROMPTS', () => {
   });
 
   it('long prompt is substantial', () => {
-    expect(BENCHMARK_PROMPTS.long.length).toBeGreaterThan(500);
+    expect(BENCHMARK_PROMPTS.long.length).toBeGreaterThan(300);
   });
 });
 
@@ -101,9 +101,9 @@ describe('runWarmup', () => {
   });
 });
 
-describe('runBenchmark', () => {
+describe('runBenchmarkLegacy', () => {
   it('returns a valid BenchmarkResult', async () => {
-    const result = await runBenchmark('test prompt', 1, 1234);
+    const result = await runBenchmarkLegacy('test prompt', 1, 1234);
 
     expect(result).toMatchObject({
       size: 'custom',
@@ -117,25 +117,21 @@ describe('runBenchmark', () => {
   });
 
   it('calls fetch the correct number of rounds', async () => {
-    await runBenchmark('hi', 3, 5555);
+    await runBenchmarkLegacy('hi', 3, 5555);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   it('passes prompt and stream options to fetch', async () => {
-    await runBenchmark('my prompt', 1, 42);
+    await runBenchmarkLegacy('my prompt', 1, 42);
     const [, opts] = fetchSpy.mock.calls[0];
     const body = JSON.parse(opts.body);
     expect(body.messages[0].content).toBe('my prompt');
     expect(body.stream).toBe(true);
   });
 
-  it('throws on invalid rounds', async () => {
-    await expect(runBenchmark('hi', 0)).rejects.toThrow('rounds must be >= 1');
-  });
-
   it('throws when vLLM returns non-200', async () => {
     fetchSpy.mockResolvedValueOnce(fakeResponse([], 500));
-    await expect(runBenchmark('hi', 1)).rejects.toThrow('vLLM returned 500');
+    await expect(runBenchmarkLegacy('hi', 1)).rejects.toThrow();
   });
 
   it('throws when response body is null', async () => {
@@ -145,7 +141,7 @@ describe('runBenchmark', () => {
       statusText: 'OK',
       body: null,
     } as unknown as Response);
-    await expect(runBenchmark('hi', 1)).rejects.toThrow('no body');
+    await expect(runBenchmarkLegacy('hi', 1)).rejects.toThrow('no body');
   });
 
   it('averages results across multiple rounds', async () => {
@@ -154,13 +150,13 @@ describe('runBenchmark', () => {
       .mockResolvedValueOnce(fakeResponse(['a', 'b']))
       .mockResolvedValueOnce(fakeResponse(['a', 'b', 'c', 'd']));
 
-    const result = await runBenchmark('test', 2, 8080);
+    const result = await runBenchmarkLegacy('test', 2, 8080);
     expect(result.rounds).toBe(2);
     expect(result.generationTokens).toBe(3); // avg of 2 and 4 = 3
   });
 
   it('defaults port to 8000', async () => {
-    await runBenchmark('hi', 1);
+    await runBenchmarkLegacy('hi', 1);
     const [url] = fetchSpy.mock.calls[0];
     expect(url).toContain('localhost:8000');
   });

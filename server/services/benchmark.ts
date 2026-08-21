@@ -285,7 +285,7 @@ export async function runBenchmark(params: {
     e2eLatencyMs: Math.round(e2eLatencyMs),
     throughputTokPerSec: Math.round(throughputTokPerSec * 10) / 10,
     actualOutputTokens,
-    promptTokens: Math.ceil(inputTokens),
+    promptTokens: estimateTokens(prompt),
     rounds,
     perRound,
     itl: {

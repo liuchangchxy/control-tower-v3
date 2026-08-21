@@ -34,6 +34,9 @@ function writeConfig(config: Record<string, unknown>): void {
 
 export const settingsRouter = Router();
 
+// Concurrency guard for config writes
+let configBusy = false;
+
 // GET /api/settings — return current config.json
 settingsRouter.get('/', (_req, res) => {
   try {
@@ -50,6 +53,11 @@ settingsRouter.get('/', (_req, res) => {
 // PUT /api/settings — update config.json
 settingsRouter.put('/', (req, res) => {
   try {
+    if (configBusy) {
+      return res.status(409).json({ ok: false, error: 'Config update already in progress' });
+    }
+    configBusy = true;
+
     const { config: newConfig } = req.body as { config?: Record<string, unknown> };
     if (!newConfig || typeof newConfig !== 'object') {
       return res.status(400).json({ ok: false, error: 'config object required' });
@@ -86,5 +94,7 @@ settingsRouter.put('/', (req, res) => {
     res.json({ ok: true, data: merged } satisfies ApiResponse<Record<string, unknown>>);
   } catch (err: any) {
     res.status(500).json({ ok: false, error: `Failed to write config.json: ${err.message}` });
+  } finally {
+    configBusy = false;
   }
 });

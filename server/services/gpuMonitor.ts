@@ -157,7 +157,9 @@ export function startGPUStream(
     if (stopped) return;
     try {
       const data = await getGPUSnapshot();
-      callback(data);
+      try { callback(data); } catch (cbErr) {
+        console.error('GPU stream callback error:', cbErr);
+      }
     } catch (err) {
       console.error('GPU monitor error:', err);
     }

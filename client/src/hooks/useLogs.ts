@@ -8,6 +8,8 @@ export function useLogs(initialLines: string[] = []) {
     onMessage: ({ line }) => {
       setLines(prev => [...prev, line].slice(-2000));
     },
+    // Clear stale logs on reconnect (server may have restarted)
+    onOpen: () => setLines([]),
   });
 
   return lines;
