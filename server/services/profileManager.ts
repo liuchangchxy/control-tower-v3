@@ -264,6 +264,7 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
   // M11: Filter to known keys only — prevent arbitrary env var injection
   const KNOWN_KEYS = new Set([
     ...Object.keys(defaults),
+    'SERVED_NAME', // required field, not in defaults
     'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN',
     'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS', 'COMPILATION_CONFIG_JSON',
     'TOOL_CALL_PARSER', 'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS',
