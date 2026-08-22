@@ -2,6 +2,7 @@ import { Card } from './common/Card';
 import { Badge } from './common/Badge';
 import { useGPU } from '../hooks/useGPU';
 import { useMetrics } from '../hooks/useMetrics';
+import { useSystem } from '../hooks/useSystem';
 
 function formatBytes(mib: number): string {
   return `${(mib / 1024).toFixed(1)} GB`;
@@ -15,56 +16,63 @@ function ThrottleTag({ reason }: { reason: string }) {
 export function GPUStats() {
   const { gpus } = useGPU();
   const { metrics } = useMetrics();
+  const { system } = useSystem();
   const kvPct = metrics ? Math.round(metrics.kvCacheUsagePerc * 100) : 0;
-
-  // Dual-card comparison: only show if 2+ GPUs
-  const showComparison = gpus.length >= 2;
 
   return (
     <div className="space-y-3">
-      {/* Dual card comparison strip */}
-      {showComparison && (
-        <Card title="GPU Comparison" className="border-accent/30">
-          <div className="grid grid-cols-2 gap-4">
-            {gpus.slice(0, 2).map(gpu => (
-              <div key={gpu.index} className="text-center">
-                <div className="text-xs text-text-muted mb-2">GPU {gpu.index}</div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="flex justify-between items-baseline">
-                    <div className="text-text-muted">Temp</div>
-                    <div className={`font-mono font-medium ${gpu.temperature >= 80 ? 'text-red-400' : gpu.temperature >= 70 ? 'text-yellow-400' : 'text-green-400'}`}>
-                      {gpu.temperature}°C
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-baseline">
-                    <div className="text-text-muted">Power</div>
-                    <div className="font-mono">{gpu.powerDraw.toFixed(0)}W</div>
-                  </div>
-                  <div className="flex justify-between items-baseline">
-                    <div className="text-text-muted">Util</div>
-                    <div className="font-mono">{gpu.utilization}%</div>
-                  </div>
+      {/* System card — CPU / RAM */}
+      {system && (
+        <Card title="System" className="border-accent/30">
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            {/* CPU Usage */}
+            <div>
+              <div className="flex justify-between items-baseline mb-1">
+                <div className="text-text-muted">CPU Usage</div>
+                <div className="font-mono">{system.cpuUsage.toFixed(1)}%</div>
+              </div>
+              <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${system.cpuUsage > 90 ? 'bg-red-500' : system.cpuUsage > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                  style={{ width: `${Math.min(system.cpuUsage, 100)}%` }}
+                />
+              </div>
+            </div>
+            {/* CPU Temp */}
+            <div className="flex justify-between items-baseline">
+              <div className="text-text-muted">CPU Temp</div>
+              <div className={`font-mono ${system.cpuTemp === null ? 'text-text-secondary' : system.cpuTemp >= 80 ? 'text-red-400' : system.cpuTemp >= 70 ? 'text-yellow-400' : 'text-green-400'}`}>
+                {system.cpuTemp !== null ? `${system.cpuTemp}°C` : 'N/A'}
+              </div>
+            </div>
+            {/* RAM */}
+            <div>
+              <div className="flex justify-between items-baseline mb-1">
+                <div className="text-text-muted">RAM</div>
+                <div className="font-mono">{formatBytes(system.ramUsed)} / {formatBytes(system.ramTotal)}</div>
+              </div>
+              <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${system.ramUsage > 90 ? 'bg-red-500' : system.ramUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+                  style={{ width: `${Math.min(system.ramUsage, 100)}%` }}
+                />
+              </div>
+            </div>
+            {/* Swap — only if swap is configured */}
+            {system.swapTotal > 0 && (
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <div className="text-text-muted">Swap</div>
+                  <div className="font-mono">{formatBytes(system.swapUsed)} / {formatBytes(system.swapTotal)}</div>
                 </div>
-                <div className="mt-2">
-                  <div className="flex justify-between items-baseline mb-1">
-                    <div className="text-text-muted text-xs">VRAM</div>
-                    <div className="font-mono text-xs">{formatBytes(gpu.memoryUsed)} / {formatBytes(gpu.memoryTotal)}</div>
-                  </div>
-                  <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden mt-1">
-                    <div
-                      className={`h-full transition-all ${(gpu.memoryUsed / gpu.memoryTotal) > 0.9 ? 'bg-red-500' : (gpu.memoryUsed / gpu.memoryTotal) > 0.75 ? 'bg-yellow-500' : 'bg-accent'}`}
-                      style={{ width: `${(gpu.memoryUsed / gpu.memoryTotal) * 100}%` }}
-                    />
-                  </div>
+                <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all ${system.swapUsage > 90 ? 'bg-red-500' : system.swapUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+                    style={{ width: `${Math.min(system.swapUsage, 100)}%` }}
+                  />
                 </div>
               </div>
-            ))}
-          </div>
-          {/* Difference row */}
-          <div className="mt-3 pt-2 border-t border-border/50 flex justify-center gap-6 text-xs text-text-muted">
-            <span>Δ Temp: <span className="font-mono text-text-secondary">{Math.abs(gpus[0].temperature - gpus[1].temperature)}°C</span></span>
-            <span>Δ VRAM: <span className="font-mono text-text-secondary">{formatBytes(Math.abs(gpus[0].memoryUsed - gpus[1].memoryUsed))}</span></span>
-            <span>Δ Util: <span className="font-mono text-text-secondary">{Math.abs(gpus[0].utilization - gpus[1].utilization)}%</span></span>
+            )}
           </div>
         </Card>
       )}
@@ -112,7 +120,10 @@ export function GPUStats() {
               {/* Display Mode Indicator */}
               <div className="mt-2 flex justify-between items-baseline">
                 <div className="text-text-muted text-xs">ECC Errors</div>
-                <div className={`font-mono text-xs ${gpu.eccErrors > 0 ? 'text-red-400' : 'text-text-secondary'}`}>
+                <div
+                  className={`font-mono text-xs ${gpu.eccErrors > 0 ? 'text-yellow-400' : 'text-text-secondary'}`}
+                  title={gpu.eccErrors > 0 ? '(software ECC)' : undefined}
+                >
                   {gpu.eccErrors > 0 ? `${gpu.eccErrors} uncorrected` : 'None'}
                 </div>
               </div>

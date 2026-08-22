@@ -111,6 +111,28 @@ const PATTERNS: ErrorPattern[] = [
     },
   },
   {
+    // Pydantic validation error (config mismatch, bad args)
+    test: (log) => /ValidationError.*(?:SpeculativeConfig|ModelConfig|EngineConfig)/i.test(log) || /Value error.*(?:speculative|quantiz|model config)/i.test(log),
+    diagnose: (_fullLog, logLines, errorLineIdx) => {
+      // Extract the specific value error message
+      const contextLines = extractContext(logLines, errorLineIdx);
+      let valueError = '';
+      for (const line of logLines) {
+        const m = line.match(/Value error,\s*(.+?)(?:\s*\[type=|$)/i);
+        if (m) { valueError = m[1]; break; }
+      }
+      return {
+        errorType: 'config_validation',
+        message: valueError || 'vLLM configuration validation failed',
+        repairs: [
+          { description: 'Check profile settings match model requirements', profilePatch: {} },
+          { description: 'Remove MTP_K if speculative model is not available', profilePatch: { MTP_K: 0 } },
+        ],
+        context: contextLines,
+      };
+    },
+  },
+  {
     // Engine dead / EngineCore failed (M5)
     test: (log) => /EngineDeadError|EngineCore failed/i.test(log),
     diagnose: (_fullLog, logLines, errorLineIdx) => ({

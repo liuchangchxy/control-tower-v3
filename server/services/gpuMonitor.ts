@@ -1,6 +1,8 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { GPUInfo } from '../types.js';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import type { GPUInfo, SystemInfo } from '../types.js';
 
 const execAsync = promisify(exec);
 
@@ -170,5 +172,77 @@ export function startGPUStream(
 
   return () => {
     stopped = true;
+  };
+}
+
+/**
+ * Get a snapshot of system CPU and memory stats.
+ * CPU usage is sampled over a short interval using os.cpus().
+ * CPU temperature is read from /sys/class/thermal/thermal_zone0/temp if available.
+ */
+export async function getSystemSnapshot(): Promise<SystemInfo> {
+  // CPU usage: sample os.cpus() twice with a short delay to compute delta
+  const cpus1 = os.cpus();
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const cpus2 = os.cpus();
+
+  let totalIdle = 0;
+  let totalDelta = 0;
+  for (let i = 0; i < cpus2.length; i++) {
+    const idle1 = cpus1[i].times.idle;
+    const idle2 = cpus2[i].times.idle;
+    const total1 =
+      cpus1[i].times.user + cpus1[i].times.nice + cpus1[i].times.sys +
+      cpus1[i].times.irq + cpus1[i].times.idle;
+    const total2 =
+      cpus2[i].times.user + cpus2[i].times.nice + cpus2[i].times.sys +
+      cpus2[i].times.irq + cpus2[i].times.idle;
+    totalIdle += idle2 - idle1;
+    totalDelta += total2 - total1;
+  }
+  const cpuUsage = totalDelta > 0
+    ? Math.round(((totalDelta - totalIdle) / totalDelta) * 100 * 10) / 10
+    : 0;
+
+  // CPU temperature: try Linux thermal zone
+  let cpuTemp: number | null = null;
+  try {
+    const raw = await fs.readFile('/sys/class/thermal/thermal_zone0/temp', 'utf-8');
+    cpuTemp = Math.round(parseInt(raw.trim(), 10) / 100) / 10; // millidegrees to degrees
+  } catch {
+    // not available on this system
+  }
+
+  // Memory
+  const totalMem = os.totalmem() / (1024 * 1024);
+  const freeMem = os.freemem() / (1024 * 1024);
+  const usedMem = totalMem - freeMem;
+
+  // Swap: use /proc/meminfo on Linux for accurate swap data
+  let swapTotal = 0;
+  let swapUsed = 0;
+  try {
+    const meminfo = await fs.readFile('/proc/meminfo', 'utf-8');
+    const swapTotalMatch = meminfo.match(/SwapTotal:\s+(\d+)\s+kB/);
+    const swapFreeMatch = meminfo.match(/SwapFree:\s+(\d+)\s+kB/);
+    if (swapTotalMatch) swapTotal = Math.round(parseInt(swapTotalMatch[1], 10) / 1024);
+    if (swapFreeMatch) {
+      const swapFree = Math.round(parseInt(swapFreeMatch[1], 10) / 1024);
+      swapUsed = swapTotal - swapFree;
+    }
+  } catch {
+    // fallback to os-level swap info
+    swapTotal = Math.round(os.totalmem() / (1024 * 1024) * 0.1); // rough estimate
+  }
+
+  return {
+    cpuUsage,
+    cpuTemp,
+    ramTotal: Math.round(totalMem),
+    ramUsed: Math.round(usedMem),
+    ramUsage: Math.round((usedMem / totalMem) * 100 * 10) / 10,
+    swapTotal,
+    swapUsed,
+    swapUsage: swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100 * 10) / 10 : 0,
   };
 }

@@ -1,11 +1,20 @@
 import { Router } from 'express';
-import { getGPUSnapshot, startGPUStream } from '../services/gpuMonitor.js';
+import { getGPUSnapshot, getSystemSnapshot, startGPUStream } from '../services/gpuMonitor.js';
 
 export const gpuRouter = Router();
 
 gpuRouter.get('/', async (_req, res) => {
   try {
     const data = await getGPUSnapshot();
+    res.json({ ok: true, data });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+gpuRouter.get('/system', async (_req, res) => {
+  try {
+    const data = await getSystemSnapshot();
     res.json({ ok: true, data });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });

@@ -108,13 +108,29 @@ function buildVLLMCommand(profile: ProfileConfig, modelDir: string): BuiltComman
     '--max-num-batched-tokens', String(profile.MAX_BATCHED_TOKENS ?? 2048),
     '--tensor-parallel-size', String(profile.TP_SIZE ?? 2),
     '--kv-cache-dtype', profile.KV_CACHE_DTYPE || 'auto',
+    '--dtype', 'half',
+    '--generation-config', 'vllm',
+    '--enable-chunked-prefill',
+    '--mamba-cache-mode', 'align',
   ];
 
   if (profile.MTP_K && profile.MTP_K > 0) {
-    args.push('--speculative-config', JSON.stringify({num_speculative_tokens: profile.MTP_K}));
+    args.push('--speculative-config', JSON.stringify({method: 'mtp', num_speculative_tokens: profile.MTP_K}));
   }
 
   args.push('--enable-prefix-caching');
+
+  // Launcher defaults: prompt tokens details and log stats suppression
+  args.push('--enable-prompt-tokens-details');
+  args.push('--disable-log-stats');
+
+  // Qwen models: reasoning parser + GDN prefill backend
+  if (profile.MODEL_FAMILY?.startsWith('qwen')) {
+    args.push('--reasoning-parser', 'qwen3');
+    if (!profile.ADDITIONAL_CONFIG_JSON) {
+      args.push('--additional-config', JSON.stringify({gdn_prefill_backend: 'flashqla_legacy'}));
+    }
+  }
 
   if (profile.ENABLE_AUTO_TOOL_CHOICE) {
     args.push('--enable-auto-tool-choice', '--tool-call-parser', profile.TOOL_CALL_PARSER || 'hermes');
@@ -131,6 +147,11 @@ function buildVLLMCommand(profile: ProfileConfig, modelDir: string): BuiltComman
   // COMPILATION_CONFIG_JSON is a CLI arg (--compilation-config)
   if (profile.COMPILATION_CONFIG_JSON) {
     args.push('--compilation-config', profile.COMPILATION_CONFIG_JSON);
+  }
+
+  // ADDITIONAL_CONFIG_JSON passthrough (overrides the Qwen default above)
+  if (profile.ADDITIONAL_CONFIG_JSON) {
+    args.push('--additional-config', profile.ADDITIONAL_CONFIG_JSON);
   }
 
   const env: Record<string, string> = {
@@ -406,7 +427,7 @@ function handleLogLine(line: string): void {
     }
     const secondsInStage = (Date.now() - stageEnteredAt) / 1000;
     const realPct = extractProgressPercent(line);
-    const progress = interpolateProgress(stage, secondsInStage, realPct);
+    const progress = Math.max(processState.progress, interpolateProgress(stage, secondsInStage, realPct));
     updateState({ progress, healthDetail: stage.label });
     emitter.emit('progress', {
       stage: stage.id,

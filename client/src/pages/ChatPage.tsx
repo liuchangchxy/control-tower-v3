@@ -11,10 +11,13 @@ function genId() {
 
 interface SSEChunk {
   choices?: Array<{
-    delta?: { content?: string };
+    delta?: { content?: string; reasoning_content?: string };
     finish_reason?: string | null;
   }>;
 }
+
+const THINKING_EFFORTS = ['low', 'medium', 'high'] as const;
+type ThinkingEffort = typeof THINKING_EFFORTS[number];
 
 export function ChatPage() {
   const { data: status } = useServerStatus();
@@ -23,6 +26,8 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [enableThinking, setEnableThinking] = useState(true);
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>('medium');
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,18 +35,20 @@ export function ChatPage() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    // Only auto-scroll if user is already near the bottom (within 150px)
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Abort any in-flight stream when the user navigates away
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
       abortRef.current = null;
     };
   }, []);
+
+  const stop = () => {
+    abortRef.current?.abort();
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -58,17 +65,27 @@ export function ChatPage() {
     let firstTokenTime: number | null = null;
     let tokenCount = 0;
     let buffer = '';
+    let reasoningBuffer = '';
 
     try {
       abortRef.current = new AbortController();
+      const body: Record<string, unknown> = {
+        model: status?.servedName || 'vllm',
+        messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: text }],
+        stream: true,
+      };
+
+      if (enableThinking) {
+        body.chat_template_kwargs = { enable_thinking: true };
+        body.reasoning_effort = thinkingEffort;
+      } else {
+        body.chat_template_kwargs = { enable_thinking: false };
+      }
+
       const res = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'vllm',
-          messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: text }],
-          stream: true,
-        }),
+        body: JSON.stringify(body),
         signal: abortRef.current.signal,
       });
 
@@ -100,13 +117,21 @@ export function ChatPage() {
 
           try {
             const chunk: SSEChunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) {
-              if (firstTokenTime === null) {
-                firstTokenTime = Date.now();
-              }
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.reasoning_content) {
+              if (firstTokenTime === null) firstTokenTime = Date.now();
               tokenCount++;
-              buffer += delta;
+              reasoningBuffer += delta.reasoning_content;
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantMsg.id ? { ...m, reasoning: reasoningBuffer } : m
+                )
+              );
+            }
+            if (delta?.content) {
+              if (firstTokenTime === null) firstTokenTime = Date.now();
+              tokenCount++;
+              buffer += delta.content;
               setMessages(prev =>
                 prev.map(m =>
                   m.id === assistantMsg.id ? { ...m, content: buffer } : m
@@ -119,7 +144,6 @@ export function ChatPage() {
         }
       }
 
-      // Finalize stats
       const ttft = firstTokenTime !== null ? firstTokenTime - requestSentAt : 0;
       const elapsed = firstTokenTime !== null ? (Date.now() - firstTokenTime) : 0;
       const tokPerSec = elapsed > 0 ? (tokenCount / (elapsed / 1000)) : 0;
@@ -133,10 +157,9 @@ export function ChatPage() {
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // user cancelled — show cancel indicator
         const cancelContent = buffer
-          ? `${buffer}\n\n_(cancelled)_`
-          : '_(cancelled)_';
+          ? `${buffer}\n\n_(stopped)${reasoningBuffer ? '' : '_'}`
+          : '_(stopped)_';
         setMessages(prev =>
           prev.map(m =>
             m.id === assistantMsg.id ? { ...m, content: cancelContent } : m
@@ -159,13 +182,25 @@ export function ChatPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      send();
+      if (isStreaming) stop(); else send();
     }
   };
+
+  const model = status?.servedName || 'model';
+  const apiUrl = `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/v1`;
 
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-3rem)]">
       <Card className="flex-1 flex flex-col overflow-hidden">
+        {/* API endpoint info */}
+        {isReady && (
+          <div className="flex items-center gap-2 px-1 pb-2 text-xs text-text-muted border-b border-border/50 mb-3">
+            <span>API:</span>
+            <code className="bg-bg-primary px-1.5 py-0.5 rounded font-mono text-text-secondary select-all">{apiUrl}</code>
+            <span className="text-text-muted/50">model: </span>
+            <code className="bg-bg-primary px-1.5 py-0.5 rounded font-mono text-text-secondary select-all">{model}</code>
+          </div>
+        )}
         <div ref={containerRef} className="flex-1 overflow-y-auto space-y-3 mb-4 p-1" aria-live="polite" aria-label="Chat messages">
           {messages.length === 0 && (
             <div className="text-text-muted text-sm text-center mt-20">
@@ -178,7 +213,39 @@ export function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        <div className="flex gap-2 border-t border-border pt-3">
+        {/* Thinking controls */}
+        <div className="flex items-center gap-3 px-1 pb-2 border-t border-border/50 mb-2">
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={enableThinking}
+              onChange={e => setEnableThinking(e.target.checked)}
+              className="accent-accent w-3.5 h-3.5"
+            />
+            <span className="text-text-secondary">💭 Thinking</span>
+          </label>
+          {enableThinking && (
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-text-muted">Depth:</span>
+              {THINKING_EFFORTS.map(level => (
+                <button
+                  key={level}
+                  onClick={() => setThinkingEffort(level)}
+                  className={`px-1.5 py-0.5 rounded text-xs transition-colors ${
+                    thinkingEffort === level
+                      ? 'bg-accent text-white'
+                      : 'bg-bg-tertiary text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Input area */}
+        <div className="flex gap-2">
           <div className="flex-1">
             <textarea
               value={input}
@@ -193,13 +260,18 @@ export function ChatPage() {
             />
             <span id="chat-hint" className="sr-only">Press Enter to send, Shift+Enter for new line</span>
           </div>
-          <Button
-            onClick={send}
-            disabled={!input.trim() || isStreaming || !isReady}
-            loading={isStreaming}
-          >
-            Send
-          </Button>
+          {isStreaming ? (
+            <Button onClick={stop} variant="secondary" className="min-w-[4rem]">
+              ⏹ Stop
+            </Button>
+          ) : (
+            <Button
+              onClick={send}
+              disabled={!input.trim() || !isReady}
+            >
+              Send
+            </Button>
+          )}
         </div>
       </Card>
     </div>

@@ -1,10 +1,11 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { cn } from '../lib/cn';
 
 export interface ChatMessageData {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  reasoning?: string;
   ttftMs?: number;
   tokPerSec?: number;
   tokenCount?: number;
@@ -16,6 +17,8 @@ interface Props {
 
 export const ChatMessage = memo(function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user';
+  const [showReasoning, setShowReasoning] = useState(false);
+  const hasReasoning = !isUser && !!message.reasoning;
 
   return (
     <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
@@ -27,6 +30,22 @@ export const ChatMessage = memo(function ChatMessage({ message }: Props) {
             : 'bg-bg-tertiary text-text-primary border border-border'
         )}
       >
+        {hasReasoning && (
+          <div className="mb-2">
+            <button
+              onClick={() => setShowReasoning(!showReasoning)}
+              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
+            >
+              <span className="text-[10px]">{showReasoning ? '▼' : '▶'}</span>
+              💭 Thinking{showReasoning ? '' : ' (click to expand)'}
+            </button>
+            {showReasoning && (
+              <div className="mt-1.5 p-2 rounded bg-bg-primary/50 text-xs text-text-muted whitespace-pre-wrap break-words border-l-2 border-accent/30">
+                {message.reasoning}
+              </div>
+            )}
+          </div>
+        )}
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {!isUser && message.ttftMs !== undefined && (
           <div className="mt-1.5 text-xs text-text-muted font-mono border-t border-border/50 pt-1.5">

@@ -10,7 +10,7 @@ export interface LogStage {
 // More specific patterns should come before broader ones.
 export const STAGES: LogStage[] = [
   { id: 'init',      label: 'Initializing',          pattern: /Initializing a VLLM/i,                                           progressStart: 0,  progressEnd: 5  },
-  { id: 'weights',   label: 'Loading model weights', pattern: /Loading model|Loading weights|model loading/i,                   progressStart: 5,  progressEnd: 25 },
+  { id: 'weights',   label: 'Loading model weights', pattern: /Loading model|Loading weights|model loading|Loading safetensors|checkpoint shards/i, progressStart: 5,  progressEnd: 25 },
   { id: 'profile',   label: 'Profiling memory',       pattern: /profiled|Memory profiling|GPU memory|determining.*memory/i,      progressStart: 25, progressEnd: 45 },
   { id: 'cudagraph', label: 'Capturing CUDA graphs',  pattern: /Capturing CUDA graphs?|cudagraph capture/i,                      progressStart: 45, progressEnd: 55 },
   // H6 fix: all branches guarded by single negative lookahead to prevent
@@ -27,6 +27,8 @@ export const ERROR_PATTERNS: RegExp[] = [
   /EngineDeadError/i,
   /EngineCore failed/i,
   /Traceback \(most recent call last\)/,
+  /ValidationError/i,
+  /Value error,.*(?:quantiz|speculative|model config)/i,
 ];
 
 export function isErrorLine(line: string): boolean {
@@ -49,8 +51,8 @@ export function parseLine(line: string): LogStage | null {
  * Returns 0-100 if found, null otherwise.
  */
 export function extractProgressPercent(line: string): number | null {
-  // tqdm bar: "100%|" or " 50%|"
-  const tqdmMatch = line.match(/(\d+(?:\.\d+)?)\s*%\s*[|█]/);
+  // tqdm bar: "100%|" or " 50%|" or "50% Completed |"
+  const tqdmMatch = line.match(/(\d+(?:\.\d+)?)\s*%\s*(?:Completed\s*)?[|█]/);
   if (tqdmMatch) {
     const pct = parseFloat(tqdmMatch[1]);
     if (pct >= 0 && pct <= 100) return pct;

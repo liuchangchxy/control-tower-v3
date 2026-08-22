@@ -51,41 +51,61 @@ function getVLLMBaseUrl(): string {
 }
 
 function proxyToVLLM(req: http.IncomingMessage, res: express.Response): void {
-  // Validate path to prevent unexpected upstream access
   const reqPath = req.url ?? '/';
   if (reqPath.includes('..')) {
     res.status(400).json({ ok: false, error: 'Invalid path' });
     return;
   }
   const upstream = getVLLMBaseUrl();
-  const url = upstream + reqPath;
-  const headers: http.OutgoingHttpHeaders = {};
+  const url = upstream + '/v1' + reqPath;
+
+  // Rebuild headers
+  const fwdHeaders: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) {
-    // Skip hop-by-hop and Host — Node will set Host from the upstream URL.
-    if (k === 'connection' || k === 'transfer-encoding' || k === 'keep-alive' || k === 'host') continue;
-    headers[k] = v as string | string[];
+    if (!v) continue;
+    if (['connection','transfer-encoding','keep-alive','host','content-length'].includes(k)) continue;
+    fwdHeaders[k] = Array.isArray(v) ? v.join(', ') : v;
   }
-  const proxyReq = http.request(url, {
+
+  // express.json() consumed the stream — reconstruct body from req.body
+  const rawBody = (req as any).body;
+  const bodyStr = (rawBody && typeof rawBody === 'object' && Object.keys(rawBody).length > 0)
+    ? JSON.stringify(rawBody)
+    : undefined;
+
+  if (bodyStr) {
+    fwdHeaders['content-type'] = fwdHeaders['content-type'] || 'application/json';
+  }
+
+  fetch(url, {
     method: req.method,
-    headers,
-  }, (proxyRes) => {
-    res.status(proxyRes.statusCode ?? 502);
-    for (const [k, v] of Object.entries(proxyRes.headers)) {
-      // Skip hop-by-hop headers; express will set its own transfer-encoding
-      if (k === 'connection' || k === 'transfer-encoding' || k === 'keep-alive') continue;
-      res.setHeader(k, v as string | string[]);
-    }
-    proxyRes.pipe(res);
-  });
-  proxyReq.on('error', (err) => {
+    headers: fwdHeaders,
+    body: bodyStr,
+  }).then(upstreamRes => {
+    res.status(upstreamRes.status);
+    upstreamRes.headers.forEach((v, k) => {
+      if (['connection','transfer-encoding','keep-alive'].includes(k)) return;
+      res.setHeader(k, v);
+    });
+    // Stream the response body
+    const reader = upstreamRes.body?.getReader();
+    if (!reader) { res.end(); return; }
+    const pump = (): void => {
+      reader.read().then(({ done, value }) => {
+        if (done) { res.end(); return; }
+        res.write(value);
+        pump();
+      }).catch(() => res.end());
+    };
+    pump();
+  }).catch(err => {
+    console.error(`[proxy] ${req.method} ${url} failed: ${err.message}`);
     if (!res.headersSent) {
       res.status(502).json({ ok: false, error: `vLLM unreachable: ${err.message}` });
     } else {
       res.end();
     }
   });
-  req.on('close', () => proxyReq.destroy());
-  req.pipe(proxyReq);
 }
 
 app.use('/v1', proxyToVLLM);

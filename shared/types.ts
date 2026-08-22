@@ -59,6 +59,19 @@ export interface GPUInfo {
   throttleReasons: string[];
 }
 
+// ── System (CPU/RAM) monitoring ─────────────────────────────────────────
+
+export interface SystemInfo {
+  cpuUsage: number;        // 0-100
+  cpuTemp: number | null;  // Celsius or null
+  ramTotal: number;        // MB
+  ramUsed: number;         // MB
+  ramUsage: number;        // 0-100
+  swapTotal: number;       // MB
+  swapUsed: number;        // MB
+  swapUsage: number;       // 0-100
+}
+
 // ── Profile config (superset — server uses subset, client uses full) ───────
 
 export interface ProfileConfig {
@@ -120,6 +133,7 @@ export interface ProfileConfig {
 
   // Optional — compilation
   COMPILATION_CONFIG_JSON?: string;
+  ADDITIONAL_CONFIG_JSON?: string;
   ENABLE_PREFIX_CACHING_COMPILE?: number;
   VLLM_ATTENTION_BACKEND_COMPILE?: string;
   TORCH_COMPILE_CACHE_DIR?: string;
