@@ -3,9 +3,9 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "outDir": "./dist/server",
-    "rootDir": "./server"
+    "outDir": "./dist",
+    "rootDir": "./"
   },
-  "include": ["server/**/*"],
+  "include": ["server/**/*", "shared/**/*"],
   "exclude": ["client", "tests"]
 }

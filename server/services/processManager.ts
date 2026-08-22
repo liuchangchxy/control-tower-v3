@@ -14,6 +14,8 @@ const execAsync = promisify(exec);
 const HOME = process.env.CONTROL_TOWER_HOME || process.cwd();
 const LOG_DIR = path.join(HOME, 'run-logs');
 const SAFE_NAME_RE = /[^a-zA-Z0-9_-]/g;
+const MAX_LOG_SIZE = 50 * 1024 * 1024; // 50MB per log file
+const MAX_ROTATED_LOGS = 3; // keep most recent 3 rotated files
 
 // ── Concurrency lock (H2) ──────────────────────────────────────────────────
 
@@ -232,10 +234,31 @@ async function _start(profileRelPath: string): Promise<void> {
     if (!childPid) throw new Error('Failed to get child PID after spawn');
     fs.writeFileSync(pidFile, String(childPid));
 
-    // Stream stdout/stderr to log file
-    const logStream = fs.createWriteStream(logFile, { flags: 'a' });
-    child.stdout.pipe(logStream);
-    child.stderr.pipe(logStream);
+    // Stream stdout/stderr to log file with rotation support
+    let logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    let currentLogSize = 0;
+
+    const rotateLogIfNeeded = (chunkSize: number) => {
+      currentLogSize += chunkSize;
+      if (currentLogSize < MAX_LOG_SIZE) return;
+      // Rotate: close current, create new, clean up old
+      logStream.end();
+      const safeNameRot = profile.SERVED_NAME.replace(SAFE_NAME_RE, '_');
+      const tsRot = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const newLogFile = path.join(LOG_DIR, `vllm-${safeNameRot}-${tsRot}.log`);
+      logStream = fs.createWriteStream(newLogFile, { flags: 'a' });
+      currentLogSize = 0;
+      updateState({ logFile: newLogFile });
+      cleanupOldLogs(safeNameRot);
+    };
+
+    // Write manually instead of pipe — enables rotation tracking
+    const writeToLog = (chunk: Buffer) => {
+      rotateLogIfNeeded(chunk.length);
+      logStream.write(chunk);
+    };
+    child.stdout.on('data', writeToLog);
+    child.stderr.on('data', writeToLog);
 
     // Pipe lines through our event emitter
     let buffer = '';
@@ -583,6 +606,26 @@ function startRecoveryPoll(): void {
       });
     }
   }, 10000);
+}
+
+/**
+ * Clean up old rotated log files, keeping only the most recent MAX_ROTATED_LOGS.
+ */
+function cleanupOldLogs(safeName: string): void {
+  try {
+    if (!fs.existsSync(LOG_DIR)) return;
+    const prefix = `vllm-${safeName}-`;
+    const files = fs.readdirSync(LOG_DIR)
+      .filter(f => f.startsWith(prefix) && f.endsWith('.log'))
+      .sort() // ISO timestamps sort lexicographically
+      .reverse(); // newest first
+
+    // Skip the current log file (first in list) and keep MAX_ROTATED_LOGS more
+    const toDelete = files.slice(1 + MAX_ROTATED_LOGS);
+    for (const f of toDelete) {
+      try { fs.unlinkSync(path.join(LOG_DIR, f)); } catch { /* ignore */ }
+    }
+  } catch { /* ignore cleanup errors */ }
 }
 
 function startLogTailer(logFile: string): void {

@@ -217,17 +217,6 @@ function resolveProfilePath(relPath: string): string {
   return fullPath;
 }
 
-function ensureWritable(relPath: string): void {
-  const realUserDir = fs.realpathSync(getUserDir());
-  const fullPath = resolveProfilePath(relPath);
-  const realFullPath = fs.realpathSync(fullPath);
-
-  // Trailing separator prevents prefix collision (H4)
-  if (!realFullPath.startsWith(realUserDir + path.sep) && realFullPath !== realUserDir) {
-    throw new Error(`Profile is read-only: ${relPath}. Only profiles in user/ can be modified.`);
-  }
-}
-
 /**
  * Create a new profile in user/ directory. Returns absolute path.
  */
