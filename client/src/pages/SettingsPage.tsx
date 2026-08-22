@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { Spinner } from '../components/common/Spinner';
-import { ToastContainer, useToasts } from '../components/common/Toast';
+import { useToast } from '../components/common/Toast';
 
 // ── Config field metadata ─────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toasts, addToast, dismiss } = useToasts();
+  const { addToast } = useToast();
 
   // Fetch settings on mount
   useEffect(() => {
@@ -51,6 +51,7 @@ export function SettingsPage() {
     try {
       const result = await api.put<Record<string, unknown>>('/settings', { config: draft });
       setDraft(result);
+      setData(prev => prev ? { ...prev, config: result } : prev);
       addToast('success', 'Settings saved successfully. Changes apply on next server restart.');
     } catch (err) {
       setError((err as Error).message);
@@ -85,7 +86,7 @@ export function SettingsPage() {
   }
 
   const fields = data?.fields ?? {};
-  const fieldOrder = ['port', 'launcherDir', 'modelDir', 'logDir', 'stateFile'];
+  const fieldOrder = ['port', 'launcherDir', 'modelDir'];
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -114,7 +115,10 @@ export function SettingsPage() {
                     type="number"
                     className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono text-sm text-text-primary"
                     value={typeof value === 'number' ? value : ''}
-                    onChange={e => handleChange(key, parseInt(e.target.value, 10) || 0)}
+                    onChange={e => {
+                      const v = parseInt(e.target.value, 10);
+                      handleChange(key, isNaN(v) ? undefined : v);
+                    }}
                   />
                 ) : (
                   <input

@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 30000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:9092',
+    baseURL: 'http://192.168.1.103:9092',
     headless: true,
   },
   projects: [

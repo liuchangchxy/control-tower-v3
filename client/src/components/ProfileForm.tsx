@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from './common/Button';
 import { Card } from './common/Card';
 import { Spinner } from './common/Spinner';
+import { useToast } from './common/Toast';
 import { useCreateProfile, useUpdateProfile, useValidateProfile } from '../hooks/useProfiles';
 import type { ProfileConfig } from '../types';
 
@@ -229,6 +230,7 @@ const DEFAULT_CONFIG: Partial<ProfileConfig> = {
 
 export function ProfileForm({ mode, initialName = '', initialConfig, editPath }: Props) {
   const navigate = useNavigate();
+  const toast = useToast();
   const [name, setName] = useState(initialName);
   const [config, setConfig] = useState<Partial<ProfileConfig>>(
     initialConfig ?? DEFAULT_CONFIG
@@ -256,7 +258,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
     if (mode === 'create') {
       const trimmedName = name.trim();
       if (!trimmedName || /[/\\:*?"<>|]/.test(trimmedName)) {
-        alert('Profile name contains invalid characters');
+        toast.addToast('error', 'Profile name contains invalid characters');
         return;
       }
       try {
@@ -292,8 +294,9 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
   const renderField = (field: FieldDef) => {
     const value = config[field.key];
     const isBool = field.type === 'boolean';
+    const isEnabled = isBool && (value === 1 || value === true);
     const displayValue = isBool
-      ? (value ?? 0) === 1
+      ? isEnabled
         ? '1'
         : '0'
       : value ?? '';
@@ -307,14 +310,15 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
           )}
         </label>
         {field.type === 'boolean' ? (
-          <select
-            className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono text-sm"
-            value={displayValue}
-            onChange={e => setField(field.key, parseInt(e.target.value, 10))}
-          >
-            <option value="1">1 (enabled)</option>
-            <option value="0">0 (disabled)</option>
-          </select>
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="w-4 h-4 accent-accent bg-bg-tertiary border border-border rounded"
+              checked={isEnabled}
+              onChange={e => setField(field.key, e.target.checked ? 1 : 0)}
+            />
+            <span className="text-sm text-text-secondary">{isEnabled ? 'Enabled' : 'Disabled'}</span>
+          </label>
         ) : field.type === 'select' ? (
           <select
             className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono text-sm"
@@ -340,7 +344,11 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
             max={field.max}
             className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono text-sm"
             value={displayValue}
-            onChange={e => setField(field.key, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
+            onChange={e => {
+              const raw = e.target.value;
+              const v = field.type === 'number' ? parseFloat(raw) : raw;
+              setField(field.key, field.type === 'number' && (raw === '' || isNaN(v as number)) ? undefined : v);
+            }}
             placeholder={field.placeholder}
           />
         )}
@@ -352,7 +360,10 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
 
   return (
     <Card>
-      <div className="space-y-4">
+      <div className="space-y-4" onChange={() => {
+        if (createMut.isError) createMut.reset();
+        if (updateMut.isError) updateMut.reset();
+      }}>
         {/* Profile name (create mode) */}
         {mode === 'create' && (
           <div>
@@ -373,6 +384,8 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
+              aria-expanded={!collapsed[group.label]}
+              aria-controls={`group-${group.label}`}
               className="w-full flex items-center justify-between px-4 py-2.5 bg-bg-tertiary hover:bg-bg-hover transition-colors"
             >
               <span className="text-sm font-medium text-text-primary">
@@ -384,7 +397,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
               </span>
             </button>
             {!collapsed[group.label] && (
-              <div className="p-4 grid grid-cols-2 gap-3">
+              <div id={`group-${group.label}`} className="p-4 grid grid-cols-2 gap-3">
                 {group.fields.map(field => renderField(field))}
               </div>
             )}
@@ -404,7 +417,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
 
         {/* Validation result */}
         {validationErrors !== null && (
-          <div className={`rounded-lg p-3 text-sm ${validationErrors.length === 0 ? 'bg-green-900/20 text-green-400 border border-green-700/50' : 'bg-red-900/20 text-red-400 border border-red-700/50'}`}>
+          <div role="alert" className={`rounded-lg p-3 text-sm ${validationErrors.length === 0 ? 'bg-green-900/20 text-green-400 border border-green-700/50' : 'bg-red-900/20 text-red-400 border border-red-700/50'}`}>
             {validationErrors.length === 0 ? (
               <div className="flex items-center gap-2">
                 <span>&#10003;</span> Configuration is valid. Ready to save.

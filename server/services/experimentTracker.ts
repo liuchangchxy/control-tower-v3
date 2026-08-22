@@ -7,6 +7,15 @@ function getExperimentsFile(): string {
   return path.join(HOME, 'run-logs', 'experiments.json');
 }
 
+// Serialize read-modify-write access to experiments.json so concurrent
+// recordExperiment/addNotes calls don't lose updates to each other.
+let writeQueue: Promise<void> = Promise.resolve();
+function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const next = writeQueue.then(fn, fn);
+  writeQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
 export function loadExperiments(): Experiment[] {
   const file = getExperimentsFile();
   if (!fs.existsSync(file)) return [];
@@ -33,11 +42,13 @@ function atomicWrite(file: string, data: unknown): void {
   fs.renameSync(tmpFile, file);
 }
 
-export function recordExperiment(exp: Experiment): void {
-  const file = getExperimentsFile();
-  const experiments = loadExperiments();
-  experiments.push(exp);
-  atomicWrite(file, experiments);
+export function recordExperiment(exp: Experiment): Promise<void> {
+  return enqueueWrite(async () => {
+    const file = getExperimentsFile();
+    const experiments = loadExperiments();
+    experiments.push(exp);
+    atomicWrite(file, experiments);
+  });
 }
 
 export function getExperimentById(id: string): Experiment | undefined {
@@ -45,11 +56,13 @@ export function getExperimentById(id: string): Experiment | undefined {
   return experiments.find((e) => e.id === id);
 }
 
-export function addNotes(id: string, notes: string): boolean {
-  const experiments = loadExperiments();
-  const exp = experiments.find((e) => e.id === id);
-  if (!exp) return false;
-  exp.notes = notes;
-  atomicWrite(getExperimentsFile(), experiments);
-  return true;
+export function addNotes(id: string, notes: string): Promise<boolean> {
+  return enqueueWrite(async () => {
+    const experiments = loadExperiments();
+    const exp = experiments.find((e) => e.id === id);
+    if (!exp) return false;
+    exp.notes = notes;
+    atomicWrite(getExperimentsFile(), experiments);
+    return true;
+  });
 }

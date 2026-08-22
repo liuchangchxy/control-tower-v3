@@ -14,8 +14,12 @@ const NAV = [
 export function Layout() {
   return (
     <div className="flex h-screen bg-bg-primary">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-accent focus:text-white focus:px-3 focus:py-1.5 focus:rounded">
+        Skip to content
+      </a>
       <aside className="w-48 border-r border-border bg-bg-secondary p-3 flex flex-col gap-1">
         <div className="text-sm font-semibold text-text-primary px-2 mb-3">Control Tower</div>
+        <nav aria-label="Main navigation">
         {NAV.map(item => (
           <NavLink
             key={item.to}
@@ -31,8 +35,9 @@ export function Layout() {
             {item.label}
           </NavLink>
         ))}
+        </nav>
       </aside>
-      <main className="flex-1 overflow-auto p-6">
+      <main id="main-content" className="flex-1 overflow-auto p-6">
         <Outlet />
       </main>
     </div>

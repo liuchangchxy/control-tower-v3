@@ -27,8 +27,14 @@ logsRouter.get('/', (req, res) => {
     const tail = start > 0 ? allLines.slice(1).slice(-lines) : allLines.slice(-lines);
     res.json({ ok: true, data: { lines: tail } });
   } catch (err: any) {
-    // Fallback: read entire file for small files
-    const content = fs.readFileSync(logFile, 'utf-8');
+    // Fallback: read only the last 64KB to avoid OOM on large files
+    const fd = fs.openSync(logFile, 'r');
+    const stat = fs.fstatSync(fd);
+    const readSize = Math.min(stat.size, 65536);
+    const buf = Buffer.alloc(readSize);
+    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+    fs.closeSync(fd);
+    const content = buf.toString('utf-8');
     const allLines = content.split('\n').filter(Boolean);
     const tail = allLines.slice(-lines);
     res.json({ ok: true, data: { lines: tail } });

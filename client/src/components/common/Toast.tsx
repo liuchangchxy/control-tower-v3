@@ -72,12 +72,15 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
   return (
     <div
+      role={toast.type === 'error' ? 'alert' : 'status'}
+      aria-atomic="true"
       className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm animate-in slide-in-from-right ${TOAST_CLASSES[toast.type]}`}
     >
       <span className="text-lg flex-shrink-0">{ICON[toast.type]}</span>
       <span className="text-sm flex-1">{toast.message}</span>
       <button
         onClick={() => onDismiss(toast.id)}
+        aria-label="Dismiss notification"
         className="ml-2 text-current opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
       >
         &times;
@@ -90,7 +93,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
 export function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div aria-live="polite" className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
       {toasts.map(toast => (
         <div key={toast.id} className="pointer-events-auto">
           <ToastItem toast={toast} onDismiss={onDismiss} />

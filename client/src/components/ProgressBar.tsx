@@ -26,13 +26,20 @@ export function ProgressBar() {
         <div className="text-sm text-text-secondary">{detail}</div>
         <div className="text-sm font-mono">{Math.round(pct)}%</div>
       </div>
-      <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden mb-4">
+      <div
+        role="progressbar"
+        aria-valuenow={Math.round(pct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Server loading progress"
+        className="h-2 bg-bg-tertiary rounded-full overflow-hidden mb-4"
+      >
         <div
           className={`h-full transition-all duration-300 ${isError ? 'bg-red-500' : 'bg-accent'}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1" aria-live="polite">
         {STAGES.map(stage => {
           const isCompleted = pct >= stage.progressEnd;
           const isActive = currentStageId === stage.id || (!currentStageId && pct >= stage.progressStart && pct < stage.progressEnd);
@@ -40,9 +47,12 @@ export function ProgressBar() {
             <div key={stage.id} className="flex items-center gap-2 text-sm">
               <div className={`w-4 h-4 flex items-center justify-center ${
                 isCompleted ? 'text-green-400' : isActive ? 'text-accent animate-pulse' : 'text-text-muted'
-              }`}>
+              }`} aria-hidden="true">
                 {isCompleted ? '✓' : isActive ? '●' : '○'}
               </div>
+              <span className="sr-only">
+                {stage.label}: {isCompleted ? 'completed' : isActive ? 'in progress' : 'pending'}
+              </span>
               <div className={isCompleted || isActive ? 'text-text-primary' : 'text-text-muted'}>
                 {stage.label}
               </div>

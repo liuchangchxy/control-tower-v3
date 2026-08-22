@@ -28,6 +28,7 @@ export function Button({ variant = 'primary', size = 'md', loading, disabled, cl
     <button
       {...props}
       disabled={isDisabled}
+      aria-busy={loading || undefined}
       className={`inline-flex items-center justify-center font-medium rounded-[var(--radius)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className ?? ''}`}
     >
       {loading && <Spinner size="sm" className="mr-2" />}

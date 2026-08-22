@@ -98,7 +98,7 @@ benchmarkRouter.post('/run', async (req, res) => {
     // Attach current metrics snapshot
     const metrics = getLatestMetrics();
 
-    // Record experiment
+    // Record experiment (fire-and-forget)
     const expId = Date.now().toString(36);
     recordExperiment({
       id: expId,
@@ -117,7 +117,7 @@ benchmarkRouter.post('/run', async (req, res) => {
         rounds: result.rounds,
       }],
       notes: undefined,
-    });
+    }).catch(err => console.error('Failed to record experiment:', err));
 
     res.json({ ok: true, data: { result, metrics } });
   } catch (err: any) {

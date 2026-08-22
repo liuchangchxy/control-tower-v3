@@ -63,7 +63,7 @@ export function LogViewer({ initialLines = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // --- folding ---
-  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const [folded, setFolded] = useState<Set<number>>(new Set());
 
   // Filtered lines
   const filtered = useMemo(() => {
@@ -116,6 +116,15 @@ export function LogViewer({ initialLines = [] }: Props) {
     setSearchIndex(matchIndices.length > 0 ? 0 : -1);
   }, [searchQuery]);
 
+  // Clamp search index when filtered matches change (e.g. filter changed)
+  useEffect(() => {
+    setSearchIndex(prev => {
+      if (matchIndices.length === 0) return -1;
+      if (prev >= matchIndices.length) return matchIndices.length - 1;
+      return prev;
+    });
+  }, [matchIndices.length]);
+
   const navigateSearch = useCallback(
     (dir: 1 | -1) => {
       if (matchIndices.length === 0) return;
@@ -129,22 +138,28 @@ export function LogViewer({ initialLines = [] }: Props) {
     [matchIndices.length],
   );
 
-  // Scroll to matched line
+  // Scroll to matched line — uses the global filtered-index stamped on each
+  // rendered element so folding other stages doesn't shift indices.
   useEffect(() => {
     if (searchIndex < 0 || !containerRef.current) return;
-    const lineEls = containerRef.current.querySelectorAll('[data-log-line]');
-    const target = lineEls[matchIndices[searchIndex]] as HTMLElement | undefined;
+    const targetIdx = matchIndices[searchIndex];
+    if (targetIdx === undefined) return;
+    const target = containerRef.current.querySelector<HTMLElement>(
+      `[data-line-idx="${targetIdx}"]`
+    );
     target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [searchIndex, matchIndices]);
 
   // Jump to first error
   const jumpToError = useCallback(() => {
     if (!containerRef.current) return;
-    const lineEls = containerRef.current.querySelectorAll('[data-log-line]');
     for (let i = 0; i < filtered.length; i++) {
       if (ERROR_RE.test(filtered[i])) {
-        (lineEls[i] as HTMLElement | undefined)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        break;
+        const target = containerRef.current.querySelector<HTMLElement>(
+          `[data-line-idx="${i}"]`
+        );
+        target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
       }
     }
   }, [filtered]);
@@ -161,25 +176,35 @@ export function LogViewer({ initialLines = [] }: Props) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [filtered]);
 
-  const toggleChunk = useCallback((stageId: string) => {
+  const toggleChunk = useCallback((chunkIdx: number) => {
     setFolded(prev => {
       const next = new Set(prev);
-      if (next.has(stageId)) next.delete(stageId);
-      else next.add(stageId);
+      if (next.has(chunkIdx)) next.delete(chunkIdx);
+      else next.add(chunkIdx);
       return next;
     });
   }, []);
 
   const foldAll = useCallback(() => {
-    setFolded(new Set(chunks.map(c => c.stageId)));
+    setFolded(new Set(chunks.map((_, i) => i)));
   }, [chunks]);
 
   const expandAll = useCallback(() => {
     setFolded(new Set());
   }, []);
 
-  // Track a running line counter across chunks for data-log-line indices
-  let globalLineIdx = -1;
+  // Precompute the starting index of each chunk in the full `filtered` list so
+  // each rendered line can carry its true global index without mutating shared
+  // state during render.
+  const chunkOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let running = 0;
+    for (const chunk of chunks) {
+      offsets.push(running);
+      running += chunk.lines.length;
+    }
+    return offsets;
+  }, [chunks]);
 
   return (
     <div className="flex flex-col h-full">
@@ -188,6 +213,7 @@ export function LogViewer({ initialLines = [] }: Props) {
         <input
           type="text"
           placeholder="Filter..."
+          aria-label="Filter log lines"
           className="flex-1 min-w-[160px] bg-bg-tertiary border border-border rounded px-3 py-1.5 text-sm"
           value={filter}
           onChange={e => setFilter(e.target.value)}
@@ -220,6 +246,7 @@ export function LogViewer({ initialLines = [] }: Props) {
             ref={searchInputRef}
             type="text"
             placeholder="Search logs..."
+            aria-label="Search logs"
             className="flex-1 bg-transparent text-sm outline-none"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
@@ -232,11 +259,11 @@ export function LogViewer({ initialLines = [] }: Props) {
               }
             }}
           />
-          <span className="text-xs text-text-secondary whitespace-nowrap">
+          <span className="text-xs text-text-secondary whitespace-nowrap" role="status" aria-live="polite">
             {matchIndices.length > 0 ? `${searchIndex + 1}/${matchIndices.length}` : 'No matches'}
           </span>
-          <button className="text-text-secondary hover:text-text-primary text-xs px-1" onClick={() => navigateSearch(-1)}>&#9650;</button>
-          <button className="text-text-secondary hover:text-text-primary text-xs px-1" onClick={() => navigateSearch(1)}>&#9660;</button>
+          <button className="text-text-secondary hover:text-text-primary text-xs px-1" aria-label="Previous match" onClick={() => navigateSearch(-1)}>&#9650;</button>
+          <button className="text-text-secondary hover:text-text-primary text-xs px-1" aria-label="Next match" onClick={() => navigateSearch(1)}>&#9660;</button>
         </div>
       )}
 
@@ -248,20 +275,21 @@ export function LogViewer({ initialLines = [] }: Props) {
         {chunks.length === 0 && (
           <div className="text-text-secondary italic">No log lines.</div>
         )}
-        {chunks.map(chunk => {
-          const isFolded = folded.has(chunk.stageId);
+        {chunks.map((chunk, chunkIdx) => {
+          const isFolded = folded.has(chunkIdx);
           const errorInChunk = chunk.lines.some(l => ERROR_RE.test(l));
           const warnInChunk = !errorInChunk && chunk.lines.some(l => WARN_RE.test(l));
+          const lineBase = chunkOffsets[chunkIdx] ?? 0;
 
           return (
-            <div key={chunk.stageId} className="mb-2">
+            <div key={chunkIdx} className="mb-2">
               {/* Stage header */}
               <button
                 className={`w-full text-left px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider flex items-center gap-2 select-none
                   ${errorInChunk ? 'bg-red-900/20 text-red-400 hover:bg-red-900/30' :
                     warnInChunk ? 'bg-yellow-900/20 text-yellow-400 hover:bg-yellow-900/30' :
                     'bg-bg-tertiary text-text-secondary hover:bg-bg-hover'}`}
-                onClick={() => toggleChunk(chunk.stageId)}
+                onClick={() => toggleChunk(chunkIdx)}
               >
                 <span className="inline-block w-3 text-center">{isFolded ? '▶' : '▼'}</span>
                 <span>{chunk.label}</span>
@@ -270,15 +298,15 @@ export function LogViewer({ initialLines = [] }: Props) {
 
               {/* Lines */}
               {!isFolded && chunk.lines.map((line, i) => {
-                globalLineIdx++;
-                const idx = globalLineIdx;
+                const idx = lineBase + i;
                 const isError = ERROR_RE.test(line);
                 const isWarn = !isError && WARN_RE.test(line);
                 const isMatch = searchQuery && line.toLowerCase().includes(searchQuery.toLowerCase());
                 return (
                   <div
-                    key={`${chunk.stageId}-${i}`}
+                    key={idx}
                     data-log-line={idx}
+                    data-line-idx={idx}
                     className={
                       `${isError ? 'text-red-400' : isWarn ? 'text-yellow-400' : 'text-text-secondary'}`
                       + (isMatch ? ' bg-yellow-900/20 rounded' : '')

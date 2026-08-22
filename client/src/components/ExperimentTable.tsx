@@ -12,7 +12,7 @@ const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | '
 type SortKey = 'timestamp' | 'profile' | 'status' | 'tokPerSec' | 'ttftMs' | 'notes';
 type SortDir = 'asc' | 'desc';
 
-const fmt = (ts: number) => new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmt = (ts: number) => new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const profileName = (p: string) => (p.split(/[/\\]/).pop() ?? p).replace(/\.profile$/i, '');
 const bestTok = (e: Experiment) => e.benchmarkResults?.length ? Math.max(...e.benchmarkResults.map(r => r.tokPerSec)) : null;
 const bestTtft = (e: Experiment) => e.benchmarkResults?.length ? Math.min(...e.benchmarkResults.map(r => r.ttftMs)) : null;
@@ -72,13 +72,13 @@ export function ExperimentTable() {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="bg-bg-tertiary border border-border rounded px-2 py-1 text-sm text-text-primary">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter by status" className="bg-bg-tertiary border border-border rounded px-2 py-1 text-sm text-text-primary">
           <option value="all">All Statuses</option>
           <option value="ready">Ready</option>
           <option value="error">Error</option>
           <option value="running">Running</option>
         </select>
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search profiles..." className="bg-bg-tertiary border border-border rounded px-2 py-1 text-sm text-text-primary w-48" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search profiles..." aria-label="Search profiles" className="bg-bg-tertiary border border-border rounded px-2 py-1 text-sm text-text-primary w-48" />
       </div>
 
       {!sorted.length ? (
@@ -89,7 +89,7 @@ export function ExperimentTable() {
             <thead>
               <tr className="border-b border-border">
                 {COLS.map(c => (
-                  <th key={c.key} onClick={() => toggleSort(c.key)} className={`px-3 py-2 text-xs font-medium text-text-secondary cursor-pointer hover:text-text-primary select-none whitespace-nowrap ${c.right ? 'text-right' : 'text-left'}`}>
+                  <th key={c.key} onClick={() => toggleSort(c.key)} aria-sort={sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`px-3 py-2 text-xs font-medium text-text-secondary cursor-pointer hover:text-text-primary select-none whitespace-nowrap ${c.right ? 'text-right' : 'text-left'}`}>
                     {c.label}{sortKey === c.key && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                   </th>
                 ))}

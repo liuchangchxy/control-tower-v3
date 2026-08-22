@@ -16,8 +16,9 @@ const CONFIG_FIELDS: Record<string, ConfigField> = {
   port:        { type: 'number', description: 'Server listen port (default 9090)' },
   launcherDir: { type: 'string', description: 'Path to vLLM launcher directory' },
   modelDir:    { type: 'string', description: 'Default model directory' },
-  logDir:      { type: 'string', description: 'Log file directory' },
-  stateFile:   { type: 'string', description: 'Persisted state filename' },
+  // logDir / stateFile are intentionally omitted — they are hardcoded in
+  // services/processManager.ts (LOG_DIR = HOME/run-logs) and services/state.ts
+  // (state file = HOME/state.json) and were previously shown but ignored.
 };
 
 function readConfig(): Record<string, unknown> {

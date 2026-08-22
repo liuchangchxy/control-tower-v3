@@ -168,16 +168,18 @@ export function BenchmarkChart({ data }: Props) {
     },
   };
 
+  const summaryText = sortedByTok.map(d => `${d.label}: ${d.result.throughputTokPerSec.toFixed(1)} tok/s, TTFT ${d.result.ttftMs.toFixed(0)}ms`).join('; ');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card title="Throughput">
-        <div className="h-64">
+        <div className="h-64" role="img" aria-label={`Throughput chart. ${summaryText}`}>
           <Bar data={barData} options={barOptions} />
         </div>
       </Card>
 
       <Card title="Latency">
-        <div className="h-64">
+        <div className="h-64" role="img" aria-label={`Latency chart. ${summaryText}`}>
           <Line data={lineData} options={lineOptions} />
         </div>
       </Card>

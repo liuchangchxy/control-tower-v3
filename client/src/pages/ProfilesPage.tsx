@@ -14,8 +14,8 @@ export function ProfilesPage() {
   // Diff state
   const [diffPair, setDiffPair] = useState<[string, string] | null>(null);
   const [leftPath, rightPath] = diffPair ?? [null, null];
-  const { data: leftConfig } = useProfile(leftPath);
-  const { data: rightConfig } = useProfile(rightPath);
+  const { data: leftConfig, error: leftError } = useProfile(leftPath);
+  const { data: rightConfig, error: rightError } = useProfile(rightPath);
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
 
@@ -93,7 +93,7 @@ export function ProfilesPage() {
               profile={p}
               onDelete={() => {
                 if (confirm(`Delete ${p.name}?`)) {
-                  del.mutate(p.name);
+                  del.mutate(p.path);
                 }
               }}
             />
@@ -106,13 +106,32 @@ export function ProfilesPage() {
         open={diffPair !== null && leftConfig !== undefined && rightConfig !== undefined}
         onClose={() => setDiffPair(null)}
       >
-        {leftConfig && rightConfig && (
+        {leftConfig && rightConfig ? (
           <ProfileDiff
             oldConfig={leftConfig}
             newConfig={rightConfig}
             onClose={() => setDiffPair(null)}
           />
-        )}
+        ) : diffPair !== null && (leftError || rightError) ? (
+          <div className="p-4 text-center">
+            <div className="text-red-400 text-sm mb-2">
+              Failed to load profile for comparison.
+            </div>
+            {leftError && (
+              <div className="text-red-300 text-xs mb-1">
+                Left: {(leftError as Error).message}
+              </div>
+            )}
+            {rightError && (
+              <div className="text-red-300 text-xs mb-1">
+                Right: {(rightError as Error).message}
+              </div>
+            )}
+            <Button variant="secondary" size="sm" className="mt-3" onClick={() => setDiffPair(null)}>
+              Close
+            </Button>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

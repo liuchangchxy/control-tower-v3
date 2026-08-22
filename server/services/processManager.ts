@@ -49,6 +49,8 @@ let logTailer: { stop: () => void } | null = null;
 let stageEnteredAt: number = 0;
 let lastStage: LogStage | null = null;
 let recoveryPollInterval: ReturnType<typeof setInterval> | null = null;
+const recentLines: string[] = [];
+const MAX_RECENT_LINES = 50;
 
 export function getStatus(): VLLMProcess {
   const uptime = processState.startedAt
@@ -208,6 +210,9 @@ async function _start(profileRelPath: string): Promise<void> {
 
   const { readEnvFile } = await import('../utils.js');
   const profile = readEnvFile(profilePath) as unknown as ProfileConfig;
+  if (!profile.SERVED_NAME) {
+    throw new Error('Profile is missing SERVED_NAME');
+  }
   const modelDir = resolveModelDir();
   const port = profile.PORT ?? 8000;
 
@@ -222,8 +227,11 @@ async function _start(profileRelPath: string): Promise<void> {
 
   updateState({ status: 'starting', profile: profileRelPath, profilePath, logFile, startedAt: Date.now(), servedName: profile.SERVED_NAME, port, progress: 0, healthDetail: 'spawning process' });
 
+  let child: ReturnType<typeof spawn> | null = null;
+  let logStream: fs.WriteStream | null = null;
+
   try {
-    const child = spawn(cmd, args, {
+    child = spawn(cmd, args, {
       env,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -235,14 +243,14 @@ async function _start(profileRelPath: string): Promise<void> {
     fs.writeFileSync(pidFile, String(childPid));
 
     // Stream stdout/stderr to log file with rotation support
-    let logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    logStream = fs.createWriteStream(logFile, { flags: 'a' });
     let currentLogSize = 0;
 
     const rotateLogIfNeeded = (chunkSize: number) => {
       currentLogSize += chunkSize;
       if (currentLogSize < MAX_LOG_SIZE) return;
       // Rotate: close current, create new, clean up old
-      logStream.end();
+      logStream!.end();
       const safeNameRot = profile.SERVED_NAME.replace(SAFE_NAME_RE, '_');
       const tsRot = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const newLogFile = path.join(LOG_DIR, `vllm-${safeNameRot}-${tsRot}.log`);
@@ -255,10 +263,10 @@ async function _start(profileRelPath: string): Promise<void> {
     // Write manually instead of pipe — enables rotation tracking
     const writeToLog = (chunk: Buffer) => {
       rotateLogIfNeeded(chunk.length);
-      logStream.write(chunk);
+      logStream!.write(chunk);
     };
-    child.stdout.on('data', writeToLog);
-    child.stderr.on('data', writeToLog);
+    child!.stdout!.on('data', writeToLog);
+    child!.stderr!.on('data', writeToLog);
 
     // Pipe lines through our event emitter
     let buffer = '';
@@ -271,8 +279,8 @@ async function _start(profileRelPath: string): Promise<void> {
         handleLogLine(line);
       }
     };
-    child.stdout.on('data', handleChunk);
-    child.stderr.on('data', handleChunk);
+    child!.stdout!.on('data', handleChunk);
+    child!.stderr!.on('data', handleChunk);
 
     // Capture PID for exit handler staleness check (H3)
     const myPid = child.pid;
@@ -281,7 +289,7 @@ async function _start(profileRelPath: string): Promise<void> {
       // Stale exit from old process — ignore (H3)
       if (processState.pid !== myPid) return;
 
-      logStream.end();
+      logStream!.end();
       stopMetricsScraping();
       if (code === 0) {
         updateState({ status: 'stopped', error: null, errorDiagnosis: null, progress: 0 });
@@ -329,7 +337,7 @@ async function _start(profileRelPath: string): Promise<void> {
         timestamp: Date.now(),
       });
       stopMetricsScraping();
-      logStream.end();
+      logStream!.end();
     });
 
     updateState({ pid: child.pid ?? null, status: 'loading', healthDetail: 'loading model', progress: 5 });
@@ -345,22 +353,37 @@ async function _start(profileRelPath: string): Promise<void> {
       port,
     });
   } catch (err) {
+    // Kill orphan child if it was spawned
+    if (child && !child.killed) {
+      try { child.kill('SIGKILL'); } catch {}
+    }
+    if (logStream) {
+      try { logStream.end(); } catch {}
+    }
+    processState.pid = null;
+    processState.status = 'error';
     updateState({
-      status: 'stopped',
+      status: 'error',
       pid: null,
       progress: 0,
       error: `Failed to spawn: ${err instanceof Error ? err.message : String(err)}`,
     });
     // Clean up PID file if partially written
-    if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+    if (fs.existsSync(pidFile)) { try { fs.unlinkSync(pidFile); } catch {} };
     throw err;
   }
 }
 
 function handleLogLine(line: string): void {
+  // Maintain rolling buffer of recent lines for error context
+  recentLines.push(line);
+  if (recentLines.length > MAX_RECENT_LINES) {
+    recentLines.shift();
+  }
+
   // Error detection with diagnosis
   if (isErrorLine(line)) {
-    const diagnosis = analyzeError([line]);
+    const diagnosis = analyzeError([...recentLines]);
     updateState({ error: diagnosis.message, errorDiagnosis: diagnosis });
     emitter.emit('progress', {
       stage: 'error',
@@ -452,10 +475,8 @@ async function _stop(): Promise<void> {
   }
 
   // SIGTERM to process group
-  try {
-    process.kill(-processState.pid, 'SIGTERM');
-  } catch (err) {
-    // Process may have already died
+  if (processState.pid && processState.pid > 1) {
+    try { process.kill(-processState.pid, 'SIGTERM'); } catch {}
   }
 
   // Wait up to 30s for graceful exit
@@ -467,9 +488,9 @@ async function _stop(): Promise<void> {
 
   // SIGKILL if still alive
   if (isProcessAlive(processState.pid)) {
-    try {
-      process.kill(-processState.pid, 'SIGKILL');
-    } catch {}
+    if (processState.pid && processState.pid > 1) {
+      try { process.kill(-processState.pid, 'SIGKILL'); } catch {}
+    }
   }
 
   await killResidualWorkers();
@@ -481,7 +502,7 @@ export async function kill(): Promise<void> {
 }
 
 async function _kill(): Promise<void> {
-  if (processState.pid !== null) {
+  if (processState.pid !== null && processState.pid > 1) {
     try { process.kill(-processState.pid, 'SIGKILL'); } catch {}
   }
   await killResidualWorkers();
@@ -515,7 +536,7 @@ async function cleanup(): Promise<void> {
     const dir = path.dirname(processState.logFile);
     const base = path.basename(processState.logFile, '.log');
     const pidFile = path.join(dir, `${base}.pid`);
-    if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+    if (fs.existsSync(pidFile)) { try { fs.unlinkSync(pidFile); } catch {} };
   }
   if (logTailer) {
     logTailer.stop();
@@ -582,7 +603,7 @@ function startRecoveryPoll(): void {
   if (recoveryPollInterval) {
     clearInterval(recoveryPollInterval);
   }
-  recoveryPollInterval = setInterval(() => {
+  recoveryPollInterval = setInterval(async () => {
     if (processState.pid === null || processState.status === 'stopped') {
       if (recoveryPollInterval) {
         clearInterval(recoveryPollInterval);
@@ -595,7 +616,15 @@ function startRecoveryPoll(): void {
         clearInterval(recoveryPollInterval);
         recoveryPollInterval = null;
       }
-      cleanup();
+      try {
+        await cleanup();
+      } catch (err) {
+        console.error('Recovery cleanup failed:', err);
+        // Force state reset even if cleanup failed
+        processState.status = 'stopped';
+        processState.pid = null;
+      }
+      // Always emit progress regardless
       emitter.emit('progress', {
         stage: 'stopped',
         label: 'Stopped',

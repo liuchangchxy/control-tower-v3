@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { cn } from '../lib/cn';
 
 export interface ChatMessageData {
@@ -13,7 +14,7 @@ interface Props {
   message: ChatMessageData;
 }
 
-export function ChatMessage({ message }: Props) {
+export const ChatMessage = memo(function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user';
 
   return (
@@ -35,4 +36,4 @@ export function ChatMessage({ message }: Props) {
       </div>
     </div>
   );
-}
+});

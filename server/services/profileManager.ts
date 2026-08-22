@@ -310,8 +310,39 @@ export async function updateProfile(relPath: string, config: Partial<ProfileConf
     throw new Error(`Profile is read-only: ${relPath}. Only profiles in user/ can be modified.`);
   }
 
+  // M11 (mirror): Filter to known keys only — prevent arbitrary env var injection via PUT
+  const KNOWN_KEYS = new Set([
+    'SERVED_NAME', 'MODEL_FAMILY', 'MODEL_VARIANT', 'PROFILE_GROUP',
+    'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN', 'COMPATIBLE_MODES',
+    'KV_CACHE_DTYPE', 'MAX_BATCHED_TOKENS', 'MAX_NUM_SEQS',
+    'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
+    'GPU_UTIL', 'MTP_K',
+    'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
+    'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
+    'VLLM_INT8KV_FA_PREFILL', 'VLLM_INT8KV_FA_CONTINUATION_DEQUANT',
+    'VLLM_INT8KV_FA_CASCADE_DEQUANT', 'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS',
+    'ATTENTION_BACKEND', 'PREFIX_CACHING',
+    'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS', 'DRAFT_TENSOR_PARALLEL_SIZE',
+    'DRAFT_MODEL_TP_SIZE', 'SPECULATIVE_DECODE_METHOD',
+    'ENABLE_AUTO_TOOL_CHOICE', 'TOOL_CALL_PARSER', 'TOOL_CALL_PARSER_PATH', 'TOOL_CALL_LIMIT',
+    'COMPILATION_CONFIG_JSON', 'ENABLE_PREFIX_CACHING_COMPILE',
+    'VLLM_ATTENTION_BACKEND_COMPILE', 'TORCH_COMPILE_CACHE_DIR', 'DISABLE_COMPILE_CACHE',
+    'LANGUAGE_MODEL_ONLY', 'SKIP_MM_PROFILING', 'SYSTEM_PROMPT', 'CHAT_TEMPLATE',
+    'TRUST_REMOTE_CODE',
+    'CUDA_VISIBLE_DEVICES', 'VLLM_HOST_IP', 'VLLM_RPC_BASE_URL',
+    'RAY_ADDRESS', 'RAY_OBJECT_STORE_MEMORY',
+    'VLLM_LOGGING_LEVEL', 'ENABLE_REQUEST_LOGGING', 'LOG_STATS',
+    'ENABLE_PROMPT_TOKEN_COUNTS', 'API_KEY',
+    'MULTI_VLM', 'VLM_INPUT_TYPE', 'SKIP_MODEL_INIT',
+    'LOAD_FORMAT', 'QUANTIZATION',
+  ]);
+  const filtered: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(config)) {
+    if (KNOWN_KEYS.has(k) && v !== undefined) filtered[k] = v as string | number;
+  }
+
   const existing = readEnvFile(fullPath);
-  const merged = { ...existing, ...config };
+  const merged = { ...existing, ...filtered };
 
   const validationErrors = validateProfile(merged);
   if (validationErrors.length > 0) {

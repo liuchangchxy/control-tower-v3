@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Card } from './common/Card';
 import { Button } from './common/Button';
 import { Spinner } from './common/Spinner';
+import { useToast } from './common/Toast';
 import { useBenchmarkPresets, useRunBenchmark } from '../hooks/useBenchmark';
 import { useProfiles } from '../hooks/useProfiles';
 import { useServerStatus } from '../hooks/useServer';
@@ -9,6 +10,7 @@ import { useStartServer, useStopServer } from '../hooks/useServer';
 import { useRecordExperiment } from '../hooks/useExperiments';
 import { BenchmarkChart } from './BenchmarkChart';
 import type { DetailedBenchmarkResult } from '../types';
+import { useQueryClient } from '@tanstack/react-query';
 
 function download(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -17,7 +19,7 @@ function download(content: string, filename: string, mime: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 interface ProfileRun {
@@ -35,6 +37,8 @@ export function BenchmarkBatch() {
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const recordExperiment = useRecordExperiment();
+  const queryClient = useQueryClient();
+  const { addToast } = useToast();
 
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [rounds, setRounds] = useState(3);
@@ -80,26 +84,26 @@ export function BenchmarkBatch() {
       // Start server with this profile
       updateRun(i, { status: 'starting' });
       try {
-        // Stop current server if running
-        if (status?.status === 'ready' || status?.status === 'loading' || status?.status === 'starting') {
+        // Stop current server if running (fresh status via queryClient)
+        const freshStatus = await queryClient.fetchQuery({ queryKey: ['server-status'] }) as typeof status;
+        if (freshStatus?.status === 'ready' || freshStatus?.status === 'loading' || freshStatus?.status === 'starting') {
           await stopServer.mutateAsync();
-          // Wait briefly for shutdown
           await new Promise(r => setTimeout(r, 2000));
         }
 
         await startServer.mutateAsync(profileName);
         updateRun(i, { status: 'running' });
 
-        // Wait for server to be ready (poll)
+        // Wait for server to be ready (actual polling)
         const waitForReady = async (timeoutMs = 120_000) => {
           const start = Date.now();
           while (Date.now() - start < timeoutMs) {
-            await new Promise(r => setTimeout(r, 2000));
-            // The useServerStatus hook will poll, but we need to check here
-            // We'll use a simpler approach: just wait and hope
-            // A proper solution would use an event or polling query
-            break; // Start server already waits for ready in the backend
+            const s = await queryClient.fetchQuery<{ status?: string }>({ queryKey: ['server-status'] });
+            if (s?.status === 'ready') return;
+            if (s?.status === 'error') throw new Error('Server failed to start');
+            await new Promise(r => setTimeout(r, 3000));
           }
+          throw new Error('Server did not become ready within timeout');
         };
         await waitForReady();
 
@@ -176,7 +180,12 @@ export function BenchmarkBatch() {
       r.status,
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    await navigator.clipboard.writeText(csv);
+    try {
+      await navigator.clipboard.writeText(csv);
+      addToast('success', 'CSV copied to clipboard.');
+    } catch {
+      addToast('error', 'Failed to copy to clipboard.');
+    }
   };
 
   return (
@@ -230,6 +239,7 @@ export function BenchmarkBatch() {
                 <button
                   key={p.name}
                   onClick={() => toggleProfile(p.name)}
+                  aria-pressed={selectedProfiles.includes(p.name)}
                   className={`text-left text-xs p-2 rounded border transition-colors ${
                     selectedProfiles.includes(p.name)
                       ? 'border-accent bg-accent/10 text-accent'
@@ -399,6 +409,15 @@ function ComparisonTable({ runs }: { runs: ProfileRun[] }) {
     setDragOverIndex(null);
   };
 
+  const moveColumn = (index: number, direction: -1 | 1) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= columnOrder.length) return;
+    const newOrder = [...columnOrder];
+    const [moved] = newOrder.splice(index, 1);
+    newOrder.splice(newIndex, 0, moved);
+    setColumnOrder(newOrder);
+  };
+
   const getOrderedColumns = () => columnOrder.map(key => DEFAULT_COLUMNS.find(c => c.key === key)!).filter(Boolean);
 
   const getCellValue = (run: ProfileRun, key: string) => {
@@ -443,6 +462,12 @@ function ComparisonTable({ runs }: { runs: ProfileRun[] }) {
                 <th
                   key={col.key}
                   draggable
+                  tabIndex={0}
+                  aria-roledescription="sortable column"
+                  onKeyDown={e => {
+                    if (e.key === 'ArrowLeft') { e.preventDefault(); moveColumn(index, -1); }
+                    if (e.key === 'ArrowRight') { e.preventDefault(); moveColumn(index, 1); }
+                  }}
                   onDragStart={(e) => handleDragStart(e, index)}
                   onDragEnter={(e) => handleDragEnter(e, index)}
                   onDragLeave={handleDragLeave}
@@ -483,16 +508,23 @@ function ComparisonTable({ runs }: { runs: ProfileRun[] }) {
 }
 
 function RunStatusIcon({ status }: { status: ProfileRun['status'] }) {
+  const labels: Record<ProfileRun['status'], string> = {
+    pending: 'Pending',
+    starting: 'Starting',
+    running: 'Running',
+    done: 'Complete',
+    error: 'Error',
+  };
   switch (status) {
     case 'pending':
-      return <div className="w-3 h-3 rounded-full bg-text-muted" />;
+      return <div className="w-3 h-3 rounded-full bg-text-muted" role="img" aria-label={labels.pending} />;
     case 'starting':
       return <Spinner size="sm" />;
     case 'running':
       return <Spinner size="sm" className="text-accent" />;
     case 'done':
-      return <div className="w-3 h-3 rounded-full bg-green-500" />;
+      return <div className="w-3 h-3 rounded-full bg-green-500" role="img" aria-label={labels.done} />;
     case 'error':
-      return <div className="w-3 h-3 rounded-full bg-red-500" />;
+      return <div className="w-3 h-3 rounded-full bg-red-500" role="img" aria-label={labels.error} />;
   }
 }

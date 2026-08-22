@@ -33,6 +33,11 @@ experimentsRouter.get('/:id', (req, res) => {
 experimentsRouter.post('/', (req, res) => {
   try {
     const status = getStatus();
+    const VALID_STATUSES = new Set(['running', 'ready', 'error']);
+    const rawStatus = req.body.status ?? status.status;
+    const expStatus: Experiment['status'] = VALID_STATUSES.has(rawStatus)
+      ? (rawStatus as Experiment['status'])
+      : (status.status as Experiment['status']);
 
     const experiment: Experiment = {
       id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -40,13 +45,13 @@ experimentsRouter.post('/', (req, res) => {
       profilePath: req.body.profilePath ?? status.profile ?? 'unknown',
       profileSnapshot: req.body.profileSnapshot ?? {},
       startDurationSec: req.body.startDurationSec ?? 0,
-      status: req.body.status ?? status.status as Experiment['status'],
+      status: expStatus,
       errorMessage: req.body.errorMessage ?? status.error ?? undefined,
       benchmarkResults: req.body.benchmarkResults ?? [],
       notes: req.body.notes,
     };
 
-    recordExperiment(experiment);
+    recordExperiment(experiment).catch(err => console.error('Failed to record experiment:', err));
     res.json({ ok: true, data: experiment });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });
@@ -54,13 +59,13 @@ experimentsRouter.post('/', (req, res) => {
 });
 
 // PATCH /api/experiments/:id/notes — add notes to an experiment
-experimentsRouter.patch('/:id/notes', (req, res) => {
+experimentsRouter.patch('/:id/notes', async (req, res) => {
   const { notes } = req.body;
   if (typeof notes !== 'string') {
     return res.status(400).json({ ok: false, error: 'notes must be a string' });
   }
 
-  const ok = addNotes(req.params.id, notes);
+  const ok = await addNotes(req.params.id, notes);
   if (!ok) {
     return res.status(404).json({ ok: false, error: 'Experiment not found' });
   }

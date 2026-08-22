@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useExperiments } from '../hooks/useExperiments';
 import { Badge } from './common/Badge';
 import { Card } from './common/Card';
@@ -11,7 +11,7 @@ const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | '
 };
 
 function fmt(ts: number) {
-  return new Date(ts * 1000).toLocaleString(undefined, {
+  return new Date(ts).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 }
@@ -95,7 +95,7 @@ function ExperimentCard({ e }: { e: Experiment }) {
           {e.benchmarkResults && <span>{e.benchmarkResults.length} benchmark{e.benchmarkResults.length !== 1 ? 's' : ''}</span>}
         </div>
         {e.notes && <p className="text-xs text-text-muted mt-2 line-clamp-2">{e.notes}</p>}
-        <button onClick={() => setOpen(!open)} className="mt-2 text-xs text-accent hover:underline">
+        <button onClick={() => setOpen(!open)} aria-expanded={open} className="mt-2 text-xs text-accent hover:underline">
           {open ? 'Collapse' : 'Expand'}
         </button>
         {open && <Expanded e={e} />}
@@ -107,13 +107,14 @@ function ExperimentCard({ e }: { e: Experiment }) {
 export function ExperimentTimeline() {
   const { data, isLoading, error } = useExperiments();
 
+  const sorted = useMemo(() => data ? [...data].sort((a, b) => b.timestamp - a.timestamp) : [], [data]);
+
   if (isLoading) return <div className="text-text-muted text-sm">Loading experiments...</div>;
   if (error) return <div className="text-red-400 text-sm">Failed to load experiments.</div>;
   if (!data?.length) {
     return <div className="text-text-muted text-sm text-center py-12">No experiments recorded yet.</div>;
   }
 
-  const sorted = [...data].sort((a, b) => b.timestamp - a.timestamp);
   return (
     <div className="py-2">
       {sorted.map(e => <ExperimentCard key={e.id} e={e} />)}

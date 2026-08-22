@@ -30,6 +30,14 @@ export function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Abort any in-flight stream when the user navigates away
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
   const send = async () => {
     const text = input.trim();
     if (!text || isStreaming || !isReady) return;
@@ -120,7 +128,15 @@ export function ChatPage() {
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // user cancelled
+        // user cancelled — show cancel indicator
+        const cancelContent = buffer
+          ? `${buffer}\n\n_(cancelled)_`
+          : '_(cancelled)_';
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id ? { ...m, content: cancelContent } : m
+          )
+        );
       } else {
         const errorMsg = err instanceof Error ? err.message : 'Stream failed';
         setMessages(prev =>
@@ -145,7 +161,7 @@ export function ChatPage() {
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-3rem)]">
       <Card className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-1">
+        <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-1" aria-live="polite" aria-label="Chat messages">
           {messages.length === 0 && (
             <div className="text-text-muted text-sm text-center mt-20">
               Start a conversation with the model. The server must be in ready state.
@@ -158,15 +174,20 @@ export function ChatPage() {
         </div>
 
         <div className="flex gap-2 border-t border-border pt-3">
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isReady ? 'Type a message...' : 'Server not ready'}
-            disabled={isStreaming || !isReady}
-            rows={1}
-            className="flex-1 bg-bg-tertiary border border-border rounded-[var(--radius)] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:border-accent disabled:opacity-50"
-          />
+          <div className="flex-1">
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isReady ? 'Type a message...' : 'Server not ready'}
+              disabled={isStreaming || !isReady}
+              rows={1}
+              aria-label="Chat message"
+              aria-describedby="chat-hint"
+              className="w-full bg-bg-tertiary border border-border rounded-[var(--radius)] px-3 py-2 text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:border-accent disabled:opacity-50"
+            />
+            <span id="chat-hint" className="sr-only">Press Enter to send, Shift+Enter for new line</span>
+          </div>
           <Button
             onClick={send}
             disabled={!input.trim() || isStreaming || !isReady}
