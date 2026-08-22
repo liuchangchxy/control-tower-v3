@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { cn } from '../lib/cn';
+import { ErrorBoundary } from './common/ErrorBoundary';
 
 const NAV = [
   { to: '/', label: 'Dashboard' },
@@ -38,7 +39,9 @@ export function Layout() {
         </nav>
       </aside>
       <main id="main-content" className="flex-1 overflow-auto p-6">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

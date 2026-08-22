@@ -4,11 +4,15 @@ import { Badge } from './common/Badge';
 import { Card } from './common/Card';
 import type { Experiment, BenchmarkResult } from '../types';
 
-const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | 'warning'; label: string }> = {
+const STATUS_BADGE: Record<string, { tone: 'success' | 'error' | 'warning'; label: string }> = {
   ready: { tone: 'success', label: 'Ready' },
   error: { tone: 'error', label: 'Error' },
   running: { tone: 'warning', label: 'Running' },
 };
+
+function getBadge(status: string) {
+  return STATUS_BADGE[status] ?? { tone: 'warning' as const, label: status || 'Unknown' };
+}
 
 function fmt(ts: number) {
   return new Date(ts).toLocaleString(undefined, {
@@ -71,7 +75,7 @@ function Expanded({ e }: { e: Experiment }) {
 
 function ExperimentCard({ e }: { e: Experiment }) {
   const [open, setOpen] = useState(false);
-  const badge = STATUS_BADGE[e.status];
+  const badge = getBadge(e.status);
   const tokPerSec = bestTokPerSec(e);
   const dotColor = e.status === 'ready' ? 'bg-green-500 border-green-400' : e.status === 'error' ? 'bg-red-500 border-red-400' : 'bg-yellow-500 border-yellow-400';
 

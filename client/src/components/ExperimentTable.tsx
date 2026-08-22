@@ -3,11 +3,15 @@ import { useExperiments } from '../hooks/useExperiments';
 import { Badge } from './common/Badge';
 import type { Experiment, BenchmarkResult } from '../types';
 
-const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | 'warning'; label: string }> = {
+const STATUS_BADGE: Record<string, { tone: 'success' | 'error' | 'warning'; label: string }> = {
   ready: { tone: 'success', label: 'Ready' },
   error: { tone: 'error', label: 'Error' },
   running: { tone: 'warning', label: 'Running' },
 };
+
+function getBadge(status: string) {
+  return STATUS_BADGE[status] ?? { tone: 'warning' as const, label: status || 'Unknown' };
+}
 
 type SortKey = 'timestamp' | 'profile' | 'status' | 'tokPerSec' | 'ttftMs' | 'notes';
 type SortDir = 'asc' | 'desc';
@@ -97,7 +101,7 @@ export function ExperimentTable() {
             </thead>
             <tbody>
               {sorted.map(e => {
-                const b = STATUS_BADGE[e.status], tok = bestTok(e), ttft = bestTtft(e);
+                const b = getBadge(e.status), tok = bestTok(e), ttft = bestTtft(e);
                 return (
                   <tr key={e.id} className="border-b border-border/50 hover:bg-bg-hover">
                     <td className="px-3 py-2 text-xs text-text-muted whitespace-nowrap">{fmt(e.timestamp)}</td>
