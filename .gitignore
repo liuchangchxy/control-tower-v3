@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 client/dist/
+test-results/
+*.tsbuildinfo
 
 # Runtime state
 state.json
@@ -22,3 +24,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Windows artifacts
+NUL
+
+# Proxy binary (download on demand)
+mihomo-*.gz
