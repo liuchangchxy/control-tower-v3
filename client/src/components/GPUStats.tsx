@@ -30,24 +30,26 @@ export function GPUStats() {
               <div key={gpu.index} className="text-center">
                 <div className="text-xs text-text-muted mb-2">GPU {gpu.index}</div>
                 <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div>
+                  <div className="flex justify-between items-baseline">
                     <div className="text-text-muted">Temp</div>
                     <div className={`font-mono font-medium ${gpu.temperature >= 80 ? 'text-red-400' : gpu.temperature >= 70 ? 'text-yellow-400' : 'text-green-400'}`}>
                       {gpu.temperature}°C
                     </div>
                   </div>
-                  <div>
+                  <div className="flex justify-between items-baseline">
                     <div className="text-text-muted">Power</div>
                     <div className="font-mono">{gpu.powerDraw.toFixed(0)}W</div>
                   </div>
-                  <div>
+                  <div className="flex justify-between items-baseline">
                     <div className="text-text-muted">Util</div>
                     <div className="font-mono">{gpu.utilization}%</div>
                   </div>
                 </div>
                 <div className="mt-2">
-                  <div className="text-text-muted text-xs">VRAM</div>
-                  <div className="font-mono text-xs">{formatBytes(gpu.memoryUsed)} / {formatBytes(gpu.memoryTotal)}</div>
+                  <div className="flex justify-between items-baseline mb-1">
+                    <div className="text-text-muted text-xs">VRAM</div>
+                    <div className="font-mono text-xs">{formatBytes(gpu.memoryUsed)} / {formatBytes(gpu.memoryTotal)}</div>
+                  </div>
                   <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden mt-1">
                     <div
                       className={`h-full transition-all ${(gpu.memoryUsed / gpu.memoryTotal) > 0.9 ? 'bg-red-500' : (gpu.memoryUsed / gpu.memoryTotal) > 0.75 ? 'bg-yellow-500' : 'bg-accent'}`}
@@ -77,19 +79,19 @@ export function GPUStats() {
           return (
             <Card key={gpu.index} title={`GPU ${gpu.index} — ${gpu.name}`} className={flashClass}>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
+                <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Temperature</div>
                   <div className={`font-mono ${tempColor}`}>{gpu.temperature}°C</div>
                 </div>
-                <div>
+                <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Power</div>
                   <div className="font-mono">{gpu.powerDraw.toFixed(0)}W / {gpu.powerLimit.toFixed(0)}W</div>
                 </div>
-                <div>
+                <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">SM Clock</div>
                   <div className="font-mono">{gpu.smClock.toFixed(0)} MHz</div>
                 </div>
-                <div>
+                <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Utilization</div>
                   <div className="font-mono">{gpu.utilization}%</div>
                 </div>
@@ -108,7 +110,7 @@ export function GPUStats() {
               )}
 
               {/* Display Mode Indicator */}
-              <div className="mt-2">
+              <div className="mt-2 flex justify-between items-baseline">
                 <div className="text-text-muted text-xs">ECC Errors</div>
                 <div className={`font-mono text-xs ${gpu.eccErrors > 0 ? 'text-red-400' : 'text-text-secondary'}`}>
                   {gpu.eccErrors > 0 ? `${gpu.eccErrors} uncorrected` : 'None'}

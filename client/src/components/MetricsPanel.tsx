@@ -6,9 +6,9 @@ import { useEffect, useRef } from 'react';
 
 function MetricRow({ label, value, unit, highlight }: { label: string; value: string | number; unit?: string; highlight?: boolean }) {
   return (
-    <div>
-      <div className="text-text-muted text-xs">{label}</div>
-      <div className={`font-mono ${highlight ? 'text-yellow-400 font-semibold' : 'text-text-primary'}`}>
+    <div className="flex items-baseline justify-between gap-2">
+      <div className="text-text-muted text-xs shrink-0">{label}</div>
+      <div className={`font-mono text-right ${highlight ? 'text-yellow-400 font-semibold' : 'text-text-primary'}`}>
         {value}{unit && <span className="text-text-muted text-xs ml-1">{unit}</span>}
       </div>
     </div>
