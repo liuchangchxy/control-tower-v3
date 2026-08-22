@@ -29,16 +29,20 @@ export function SettingsPage() {
 
   // Fetch settings on mount
   useEffect(() => {
+    let cancelled = false;
     api.get<SettingsData>('/settings')
       .then(res => {
+        if (cancelled) return;
         setData(res);
         setDraft(res.config);
         setLoading(false);
       })
       .catch(err => {
+        if (cancelled) return;
         setError(err.message);
         setLoading(false);
       });
+    return () => { cancelled = true; };
   }, []);
 
   const handleChange = (key: string, value: unknown) => {

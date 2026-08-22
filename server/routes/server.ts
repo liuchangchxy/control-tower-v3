@@ -47,19 +47,24 @@ serverRouter.get('/progress', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clearInterval(heartbeat);
+    unsub();
+  };
+
   const unsub = pm.onProgress(event => {
-    try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { unsub(); }
+    try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { cleanup(); }
   });
 
   // Heartbeat to detect dead connections (M15)
   const heartbeat = setInterval(() => {
-    try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); unsub(); }
+    try { res.write(': heartbeat\n\n'); } catch { cleanup(); }
   }, 15000);
 
-  req.on('close', () => {
-    clearInterval(heartbeat);
-    unsub();
-  });
+  req.on('close', cleanup);
 });
 
 // ── Restart ──────────────────────────────────────────────────────────────────

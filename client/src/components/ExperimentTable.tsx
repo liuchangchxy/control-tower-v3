@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useExperiments } from '../hooks/useExperiments';
 import { Badge } from './common/Badge';
-import type { Experiment } from '../types';
+import type { Experiment, BenchmarkResult } from '../types';
 
 const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | 'warning'; label: string }> = {
   ready: { tone: 'success', label: 'Ready' },
@@ -14,8 +14,8 @@ type SortDir = 'asc' | 'desc';
 
 const fmt = (ts: number) => new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const profileName = (p: string) => (p.split(/[/\\]/).pop() ?? p).replace(/\.profile$/i, '');
-const bestTok = (e: Experiment) => e.benchmarkResults?.length ? Math.max(...e.benchmarkResults.map(r => r.tokPerSec)) : null;
-const bestTtft = (e: Experiment) => e.benchmarkResults?.length ? Math.min(...e.benchmarkResults.map(r => r.ttftMs)) : null;
+const bestTok = (e: Experiment) => e.benchmarkResults?.length ? Math.max(...e.benchmarkResults.map((r: BenchmarkResult) => r.tokPerSec)) : null;
+const bestTtft = (e: Experiment) => e.benchmarkResults?.length ? Math.min(...e.benchmarkResults.map((r: BenchmarkResult) => r.ttftMs)) : null;
 
 const COLS: { key: SortKey; label: string; right?: boolean }[] = [
   { key: 'timestamp', label: 'Timestamp' },

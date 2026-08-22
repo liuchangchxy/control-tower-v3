@@ -102,7 +102,7 @@ export function GPUStats() {
                 <div className="mt-3 pt-2 border-t border-border/50">
                   <div className="text-text-muted text-xs mb-1.5">⚡ Throttle Reasons</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {gpu.throttleReasons.map((reason, i) => (
+                    {gpu.throttleReasons.map((reason: string, i: number) => (
                       <ThrottleTag key={i} reason={reason} />
                     ))}
                   </div>

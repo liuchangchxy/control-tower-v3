@@ -205,7 +205,7 @@ async function _start(profileRelPath: string): Promise<void> {
 
   const profilesDir = path.join(JSON.parse(fs.readFileSync(path.join(HOME, 'config.json'), 'utf-8')).launcherDir, 'profiles');
   const profilePath = path.resolve(profilesDir, profileRelPath);
-  if (!profilePath.startsWith(profilesDir)) throw new Error('Invalid profile path');
+  if (!profilePath.startsWith(profilesDir + path.sep)) throw new Error('Invalid profile path');
   if (!fs.existsSync(profilePath)) throw new Error(`Profile not found: ${profileRelPath}`);
 
   const { readEnvFile } = await import('../utils.js');
@@ -217,6 +217,7 @@ async function _start(profileRelPath: string): Promise<void> {
   const port = profile.PORT ?? 8000;
 
   // Prepare log + pid files
+  recentLines.length = 0;  // Clear stale lines from previous run
   if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
   const safeName = profile.SERVED_NAME.replace(SAFE_NAME_RE, '_');
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -440,8 +441,10 @@ function handleLogLine(line: string): void {
 async function checkHealth(): Promise<boolean> {
   if (!processState.port) return false;
   try {
-    const { stdout } = await execAsync(`curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://localhost:${processState.port}/health`);
-    return stdout.trim() === '200';
+    const res = await fetch(`http://localhost:${processState.port}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.status === 200;
   } catch {
     return false;
   }

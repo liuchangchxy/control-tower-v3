@@ -8,7 +8,8 @@ import { useExperiments } from '../hooks/useExperiments';
 import { useMetrics } from '../hooks/useMetrics';
 import { useCreateProfile } from '../hooks/useProfiles';
 import { Modal } from './common/Modal';
-import { ToastContainer, useToasts, useToast } from './common/Toast';
+import { useToast } from './common/Toast';
+import type { ProfileConfig } from '../types';
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | 'error' | 'neutral' | 'info'> = {
   ready: 'success',
@@ -36,8 +37,7 @@ export function ServerControl() {
   const kill = useKillServer();
   const restart = useRestartServer();
   const createProfile = useCreateProfile();
-  const { toasts, addToast, dismiss } = useToasts();
-  const globalToast = useToast();
+  const toast = useToast();
   const [showStartModal, setShowStartModal] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<string>('');
 
@@ -48,9 +48,9 @@ export function ServerControl() {
     const curr = status?.status;
     if (prev && curr && prev !== curr) {
       if (curr === 'ready') {
-        globalToast.addToast('success', `vLLM is ready (${status?.servedName ?? 'model'})`);
+        toast.addToast('success', `vLLM is ready (${status?.servedName ?? 'model'})`);
       } else if (curr === 'error' && status?.error) {
-        globalToast.addToast('error', `vLLM failed: ${status.error}`);
+        toast.addToast('error', `vLLM failed: ${status.error}`);
       }
     }
     prevStatusRef.current = curr;
@@ -90,9 +90,9 @@ export function ServerControl() {
             if (!lastReadyExperiment) return;
             try {
               await start.mutateAsync(lastReadyExperiment.profilePath);
-              addToast('success', `Rolled back to ${lastReadyExperiment.profilePath.split('/').pop()}`);
+              toast.addToast('success', `Rolled back to ${lastReadyExperiment.profilePath.split('/').pop()}`);
             } catch (err) {
-              addToast('error', `Rollback failed: ${(err as Error).message}`);
+              toast.addToast('error', `Rollback failed: ${(err as Error).message}`);
             }
           }}
           disabled={isRunning || !lastReadyExperiment}
@@ -111,15 +111,15 @@ export function ServerControl() {
           {repairs.length > 0 && (
             <div className="flex flex-col gap-2 mt-2">
               <div className="text-text-muted text-xs">Suggested fixes:</div>
-              {repairs.map((repair, i) => (
+              {repairs.map((repair: { description: string; profilePatch: Partial<ProfileConfig> }, i: number) => (
                 <Button key={i} size="sm" variant="secondary"
                   onClick={async () => {
                     try {
                       const patchName = `fix-${status.errorDiagnosis?.errorType ?? 'unknown'}-${Date.now()}`;
                       await createProfile.mutateAsync({ name: patchName, config: repair.profilePatch });
-                      addToast('success', `Profile "${patchName}" created. Restart the server to apply.`);
+                      toast.addToast('success', `Profile "${patchName}" created. Restart the server to apply.`);
                     } catch (err) {
-                      addToast('error', `Failed to apply fix: ${(err as Error).message}`);
+                      toast.addToast('error', `Failed to apply fix: ${(err as Error).message}`);
                     }
                   }}
                   loading={createProfile.isPending}
@@ -160,7 +160,6 @@ export function ServerControl() {
           {start.error && <div className="text-red-400 text-sm mt-2">{(start.error as Error).message}</div>}
         </div>
       </Modal>
-      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </Card>
   );
 }

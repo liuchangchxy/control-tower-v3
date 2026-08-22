@@ -17,27 +17,37 @@ logsRouter.get('/', (req, res) => {
     const stat = fs.statSync(logFile);
     const maxBytes = lines * 500; // estimate ~500 bytes per log line
     const start = Math.max(0, stat.size - maxBytes);
+    const readSize = Math.min(stat.size - start, maxBytes);
     const fd = fs.openSync(logFile, 'r');
-    const buf = Buffer.alloc(Math.min(stat.size - start, maxBytes));
-    fs.readSync(fd, buf, 0, buf.length, start);
-    fs.closeSync(fd);
-    const content = buf.toString('utf-8');
-    const allLines = content.split('\n').filter(Boolean);
-    // If we read from the middle, the first line may be partial
-    const tail = start > 0 ? allLines.slice(1).slice(-lines) : allLines.slice(-lines);
-    res.json({ ok: true, data: { lines: tail } });
+    try {
+      const buf = Buffer.alloc(readSize);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      const content = buf.toString('utf-8');
+      const allLines = content.split('\n').filter(Boolean);
+      // If we read from the middle, the first line may be partial
+      const tail = start > 0 ? allLines.slice(1).slice(-lines) : allLines.slice(-lines);
+      res.json({ ok: true, data: { lines: tail } });
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err: any) {
     // Fallback: read only the last 64KB to avoid OOM on large files
-    const fd = fs.openSync(logFile, 'r');
-    const stat = fs.fstatSync(fd);
-    const readSize = Math.min(stat.size, 65536);
-    const buf = Buffer.alloc(readSize);
-    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
-    fs.closeSync(fd);
-    const content = buf.toString('utf-8');
-    const allLines = content.split('\n').filter(Boolean);
-    const tail = allLines.slice(-lines);
-    res.json({ ok: true, data: { lines: tail } });
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(logFile, 'r');
+      const stat = fs.fstatSync(fd);
+      const readSize = Math.min(stat.size, 65536);
+      const buf = Buffer.alloc(readSize);
+      fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+      const content = buf.toString('utf-8');
+      const allLines = content.split('\n').filter(Boolean);
+      const tail = allLines.slice(-lines);
+      res.json({ ok: true, data: { lines: tail } });
+    } catch {
+      res.json({ ok: true, data: { lines: [] } });
+    } finally {
+      if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+    }
   }
 });
 

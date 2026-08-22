@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ToastProvider } from './components/common/Toast';
 import { Spinner } from './components/common/Spinner';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ProfilesPage = lazy(() => import('./pages/ProfilesPage').then(m => ({ default: m.ProfilesPage })));
@@ -24,22 +25,24 @@ function PageSpinner() {
 export default function App() {
   return (
     <ToastProvider>
-      <Suspense fallback={<PageSpinner />}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/profiles" element={<ProfilesPage />} />
-            <Route path="/profiles/new" element={<ProfileEditorPage />} />
-            <Route path="/profiles/:name/edit" element={<ProfileEditorPage />} />
-            <Route path="/benchmark" element={<BenchmarkPage />} />
-            <Route path="/chat" element={<ChatPage />} />
-            <Route path="/experiments" element={<ExperimentsPage />} />
-            <Route path="/logs" element={<LogsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<PageSpinner />}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/profiles" element={<ProfilesPage />} />
+              <Route path="/profiles/new" element={<ProfileEditorPage />} />
+              <Route path="/profiles/:name/edit" element={<ProfileEditorPage />} />
+              <Route path="/benchmark" element={<BenchmarkPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/experiments" element={<ExperimentsPage />} />
+              <Route path="/logs" element={<LogsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </ToastProvider>
   );
 }

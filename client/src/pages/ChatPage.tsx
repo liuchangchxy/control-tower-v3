@@ -25,9 +25,14 @@ export function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = containerRef.current;
+    if (!el) return;
+    // Only auto-scroll if user is already near the bottom (within 150px)
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   // Abort any in-flight stream when the user navigates away
@@ -161,7 +166,7 @@ export function ChatPage() {
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-3rem)]">
       <Card className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto space-y-3 mb-4 p-1" aria-live="polite" aria-label="Chat messages">
+        <div ref={containerRef} className="flex-1 overflow-y-auto space-y-3 mb-4 p-1" aria-live="polite" aria-label="Chat messages">
           {messages.length === 0 && (
             <div className="text-text-muted text-sm text-center mt-20">
               Start a conversation with the model. The server must be in ready state.

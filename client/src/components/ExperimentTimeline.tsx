@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useExperiments } from '../hooks/useExperiments';
 import { Badge } from './common/Badge';
 import { Card } from './common/Card';
-import type { Experiment } from '../types';
+import type { Experiment, BenchmarkResult } from '../types';
 
 const STATUS_BADGE: Record<Experiment['status'], { tone: 'success' | 'error' | 'warning'; label: string }> = {
   ready: { tone: 'success', label: 'Ready' },
@@ -23,7 +23,7 @@ function profileName(p: string) {
 
 function bestTokPerSec(e: Experiment): string | null {
   if (!e.benchmarkResults?.length) return null;
-  return Math.max(...e.benchmarkResults.map(r => r.tokPerSec)).toFixed(1);
+  return Math.max(...e.benchmarkResults.map((r: BenchmarkResult) => r.tokPerSec)).toFixed(1);
 }
 
 function Expanded({ e }: { e: Experiment }) {

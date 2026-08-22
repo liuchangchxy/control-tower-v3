@@ -178,7 +178,7 @@ let metricsHistory: VLLMMetrics[] = [];
 let scrapingInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startMetricsScraping(port: number = 8000): void {
-  if (scrapingInterval) return;
+  if (scrapingInterval) stopMetricsScraping();  // Restart with new port if already running
   scrapingInterval = setInterval(async () => {
     try {
       const res = await fetch(`http://localhost:${port}/metrics`);

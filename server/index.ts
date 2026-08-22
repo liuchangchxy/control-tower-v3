@@ -51,8 +51,14 @@ function getVLLMBaseUrl(): string {
 }
 
 function proxyToVLLM(req: http.IncomingMessage, res: express.Response): void {
+  // Validate path to prevent unexpected upstream access
+  const reqPath = req.url ?? '/';
+  if (reqPath.includes('..')) {
+    res.status(400).json({ ok: false, error: 'Invalid path' });
+    return;
+  }
   const upstream = getVLLMBaseUrl();
-  const url = upstream + (req.url ?? '');
+  const url = upstream + reqPath;
   const headers: http.OutgoingHttpHeaders = {};
   for (const [k, v] of Object.entries(req.headers)) {
     // Skip hop-by-hop and Host — Node will set Host from the upstream URL.

@@ -422,9 +422,11 @@ function ComparisonTable({ runs }: { runs: ProfileRun[] }) {
 
   const getCellValue = (run: ProfileRun, key: string) => {
     const r = run.results[0];
+    if (key === 'profile') {
+      return <td className="py-2 pr-4 font-mono text-xs">{run.profileName}</td>;
+    }
+    if (!r) return <td className="py-2 px-4 text-text-muted">-</td>;
     switch (key) {
-      case 'profile':
-        return <td className="py-2 pr-4 font-mono text-xs">{run.profileName}</td>;
       case 'tokPerSec':
         return <td className="text-right py-2 px-4 font-mono text-accent font-medium">{r.throughputTokPerSec.toFixed(1)}</td>;
       case 'ttft':

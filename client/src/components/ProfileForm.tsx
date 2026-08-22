@@ -247,7 +247,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
 
   const setField = (key: keyof ProfileConfig, value: unknown) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
+    setConfig((prev: Partial<ProfileConfig>) => ({ ...prev, [key]: value }));
   };
 
   const toggleGroup = (label: string) => {
@@ -294,7 +294,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
   const renderField = (field: FieldDef) => {
     const value = config[field.key];
     const isBool = field.type === 'boolean';
-    const isEnabled = isBool && (value === 1 || value === true);
+    const isEnabled = isBool && (value === 1 || value === '1');
     const displayValue = isBool
       ? isEnabled
         ? '1'

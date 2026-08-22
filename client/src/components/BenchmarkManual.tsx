@@ -7,7 +7,10 @@ import { useBenchmarkPresets, useRunBenchmark } from '../hooks/useBenchmark';
 import { useServerStatus } from '../hooks/useServer';
 import type { DetailedBenchmarkResult, VLLMMetrics } from '../types';
 
+let _benchId = 0;
+
 interface RunEntry {
+  id: number;
   result: DetailedBenchmarkResult;
   metrics: VLLMMetrics | null;
 }
@@ -46,8 +49,8 @@ export function BenchmarkManual() {
     }
 
     try {
-      const result = await runBenchmark.mutateAsync(vars);
-      setResults(prev => [result, ...prev]);
+      const runResult = await runBenchmark.mutateAsync(vars);
+      setResults(prev => [{ id: ++_benchId, ...runResult }, ...prev]);
     } catch {
       // error via runBenchmark.error
     }
@@ -171,7 +174,7 @@ export function BenchmarkManual() {
                 {results.map((entry, i) => {
                   const r = entry.result;
                   return (
-                    <tr key={i} className="border-b border-border/50 hover:bg-bg-hover">
+                    <tr key={entry.id} className="border-b border-border/50 hover:bg-bg-hover">
                       <td className="py-2 pr-3">
                         <Badge tone={presetTone(r.presetId)}>{r.presetId}</Badge>
                       </td>

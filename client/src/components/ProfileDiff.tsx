@@ -76,7 +76,7 @@ export function ProfileDiff({ oldConfig, newConfig, onClose }: Props) {
   // Collect changed keys
   const allKeys = new Set<string>();
   for (const group of GROUPS) {
-    for (const k of group.keys) allKeys.add(k);
+    for (const k of group.keys) allKeys.add(k as string);
   }
   const changedCount = [...allKeys].filter(k => {
     const o = oldConfig[k as keyof ProfileConfig];
