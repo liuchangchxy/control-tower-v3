@@ -5,7 +5,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { VLLMProcess, ProfileConfig, ProgressEvent } from '../types.js';
 import { loadState, saveState, clearState } from './state.js';
-import { parseLine, interpolateProgress, isErrorLine, extractProgressPercent, type LogStage } from './logParser.js';
+import { parseLine, interpolateProgress, isErrorLine, extractProgressPercent, findLatestStage, type LogStage } from './logParser.js';
 import { analyzeError } from './errorAnalyzer.js';
 import { startMetricsScraping, stopMetricsScraping } from './vllmMetrics.js';
 
@@ -49,8 +49,24 @@ let logTailer: { stop: () => void } | null = null;
 let stageEnteredAt: number = 0;
 let lastStage: LogStage | null = null;
 let recoveryPollInterval: ReturnType<typeof setInterval> | null = null;
+let progressTickInterval: ReturnType<typeof setInterval> | null = null;
 const recentLines: string[] = [];
 const MAX_RECENT_LINES = 50;
+
+/** Single point of progress update — enforces monotonic increase. */
+function setProgress(stage: LogStage, rawProgress: number, extraMessage?: string) {
+  const progress = Math.max(processState.progress, Math.round(rawProgress));
+  updateState({ progress, healthDetail: stage.label });
+  emitter.emit('progress', {
+    stage: stage.id,
+    label: stage.label,
+    progress,
+    stageProgress: stageProgressFromOverall(progress, stage),
+    status: 'active',
+    message: extraMessage,
+    timestamp: Date.now(),
+  });
+}
 
 export function getStatus(): VLLMProcess {
   const uptime = processState.startedAt
@@ -67,6 +83,13 @@ export function onProgress(callback: (event: ProgressEvent) => void): () => void
 export function onLogLine(callback: (line: string) => void): () => void {
   emitter.on('log', callback);
   return () => emitter.off('log', callback);
+}
+
+/** Calculate 0-100 progress within a stage from overall 0-100 progress. */
+function stageProgressFromOverall(overallProgress: number, stage: LogStage): number {
+  const range = stage.progressEnd - stage.progressStart;
+  if (range <= 0) return 100;
+  return Math.min(100, Math.max(0, Math.round(((overallProgress - stage.progressStart) / range) * 100)));
 }
 
 // ── Restart ────────────────────────────────────────────────────────────────
@@ -158,6 +181,8 @@ function buildVLLMCommand(profile: ProfileConfig, modelDir: string): BuiltComman
     ...process.env as Record<string, string>,
     PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True',
     CUDA_DEVICE_ORDER: 'PCI_BUS_ID',
+    // Enable torch.compile progress logging for real-time compile tracking
+    TORCH_LOGS: '+dynamo',
     CUDA_VISIBLE_DEVICES: '0,1',
   };
   if (profile.VLLM_INT8KV_FA_CONTINUATION_DEQUANT) {
@@ -304,6 +329,15 @@ async function _start(profileRelPath: string): Promise<void> {
     child!.stdout!.on('data', handleChunk);
     child!.stderr!.on('data', handleChunk);
 
+    // Periodic progress tick — recalculates progress every 2s during startup
+    // so the bar advances smoothly even when no new log lines arrive (e.g. memory profiling)
+    if (progressTickInterval) clearInterval(progressTickInterval);
+    progressTickInterval = setInterval(() => {
+      if (!lastStage || (processState.status !== 'starting' && processState.status !== 'loading')) return;
+      const secondsInStage = (Date.now() - stageEnteredAt) / 1000;
+      setProgress(lastStage, interpolateProgress(lastStage, secondsInStage, null));
+    }, 2000);
+
     // Capture PID for exit handler staleness check (H3)
     const myPid = child.pid;
 
@@ -311,14 +345,21 @@ async function _start(profileRelPath: string): Promise<void> {
       // Stale exit from old process — ignore (H3)
       if (processState.pid !== myPid) return;
 
+      if (progressTickInterval) { clearInterval(progressTickInterval); progressTickInterval = null; }
       logStream!.end();
       stopMetricsScraping();
+
+      // Always try to clean up residual worker processes and release GPU memory
+      // This handles OOM crashes where workers survive the main process
+      killResidualWorkers().catch(() => {});
+
       if (code === 0) {
         updateState({ status: 'stopped', error: null, errorDiagnosis: null, progress: 0 });
         emitter.emit('progress', {
           stage: lastStage?.id ?? 'stopped',
           label: 'Stopped',
           progress: 0,
+          stageProgress: 0,
           status: 'completed',
           message: 'Process exited cleanly',
           timestamp: Date.now(),
@@ -329,6 +370,7 @@ async function _start(profileRelPath: string): Promise<void> {
           stage: lastStage?.id ?? 'stopped',
           label: 'Stopped',
           progress: 0,
+          stageProgress: 0,
           status: 'completed',
           message: `Process terminated by signal ${signal}`,
           timestamp: Date.now(),
@@ -339,6 +381,7 @@ async function _start(profileRelPath: string): Promise<void> {
           stage: lastStage?.id ?? 'error',
           label: 'Error',
           progress: 0,
+          stageProgress: 0,
           status: 'error',
           message: `Exit code ${code}`,
           timestamp: Date.now(),
@@ -354,6 +397,7 @@ async function _start(profileRelPath: string): Promise<void> {
         stage: 'error',
         label: 'Error',
         progress: 0,
+        stageProgress: 0,
         status: 'error',
         message: err.message,
         timestamp: Date.now(),
@@ -362,7 +406,7 @@ async function _start(profileRelPath: string): Promise<void> {
       logStream!.end();
     });
 
-    updateState({ pid: child.pid ?? null, status: 'loading', healthDetail: 'loading model', progress: 5 });
+    updateState({ pid: child.pid ?? null, status: 'loading', healthDetail: 'loading model', progress: 0 });
 
     // Save state for restart recovery (include fullCmd for M4)
     saveState({
@@ -411,6 +455,7 @@ function handleLogLine(line: string): void {
       stage: 'error',
       label: 'Error',
       progress: processState.progress,
+      stageProgress: 0,
       status: 'error',
       message: diagnosis.message,
       timestamp: Date.now(),
@@ -421,21 +466,14 @@ function handleLogLine(line: string): void {
   // Stage detection
   const stage = parseLine(line);
   if (stage) {
-    if (!lastStage || stage.id !== lastStage.id) {
+    const stageChanged = !lastStage || stage.id !== lastStage.id;
+    if (stageChanged) {
       lastStage = stage;
       stageEnteredAt = Date.now();
     }
     const secondsInStage = (Date.now() - stageEnteredAt) / 1000;
     const realPct = extractProgressPercent(line);
-    const progress = Math.max(processState.progress, interpolateProgress(stage, secondsInStage, realPct));
-    updateState({ progress, healthDetail: stage.label });
-    emitter.emit('progress', {
-      stage: stage.id,
-      label: stage.label,
-      progress,
-      status: 'active',
-      timestamp: Date.now(),
-    });
+    setProgress(stage, interpolateProgress(stage, secondsInStage, realPct));
 
     // Server-ready is special: start metrics scraping after health check
     if (stage.id === 'server') {
@@ -444,12 +482,14 @@ function handleLogLine(line: string): void {
       setTimeout(() => checkHealth().then(ready => {
         if (processState.pid !== gen) return; // stale — new process started (M2)
         if (ready) {
+          if (progressTickInterval) { clearInterval(progressTickInterval); progressTickInterval = null; }
           updateState({ status: 'ready', progress: 100, healthDetail: 'ready' });
           startMetricsScraping(processState.port);
           emitter.emit('progress', {
             stage: 'ready',
             label: 'Ready',
             progress: 100,
+            stageProgress: 100,
             status: 'completed',
             timestamp: Date.now(),
           });
@@ -536,11 +576,17 @@ async function _kill(): Promise<void> {
 async function killResidualWorkers(): Promise<void> {
   if (processState.pid === null) return;
   try {
-    // Only kill children if the parent PID is still our vLLM process (M4)
+    // 1. Kill direct children of the main process (if it's still alive)
     const { stdout } = await execAsync(`ps -p ${processState.pid} -o args= 2>/dev/null || true`);
     if (stdout.includes('vllm') || stdout.includes('python3')) {
       await execAsync(`pkill -9 -P ${processState.pid} || true`);
     }
+    // 2. Kill orphaned VLLM worker processes (PPID=1 after main process died)
+    // These hold GPU memory and won't be cleaned up by step 1
+    await execAsync(`pkill -9 -f 'VLLM::Worker' 2>/dev/null || true`);
+    await execAsync(`pkill -9 -f 'vllm.*Worker' 2>/dev/null || true`);
+    // 3. Also kill the main process if it's somehow still alive
+    try { process.kill(processState.pid, 'SIGKILL'); } catch {}
   } catch {}
 }
 
@@ -555,6 +601,7 @@ function isProcessAlive(pid: number): boolean {
 
 async function cleanup(): Promise<void> {
   stopMetricsScraping();
+  if (progressTickInterval) { clearInterval(progressTickInterval); progressTickInterval = null; }
   if (processState.logFile && fs.existsSync(processState.logFile)) {
     // Keep log file, just clean up pid file
     const dir = path.dirname(processState.logFile);
@@ -608,10 +655,38 @@ export async function recoverFromState(): Promise<void> {
       errorDiagnosis: null,
     };
     if (processState.logFile && fs.existsSync(processState.logFile)) {
+      // Rebuild lastStage from existing log so the progress timer works after restart
+      try {
+        const existingLines = fs.readFileSync(processState.logFile, 'utf-8').split('\n').slice(-200);
+        const recovered = findLatestStage(existingLines);
+        if (recovered) {
+          lastStage = recovered;
+          stageEnteredAt = Date.now(); // conservative: we don't know real entry time
+        }
+      } catch {}
       startLogTailer(processState.logFile);
     }
     if (ready) {
       startMetricsScraping(processState.port);
+    } else {
+      // Start progress tick timer for recovered processes still loading
+      if (progressTickInterval) clearInterval(progressTickInterval);
+      progressTickInterval = setInterval(() => {
+        if (!lastStage || (processState.status !== 'starting' && processState.status !== 'loading')) return;
+        const secondsInStage = (Date.now() - stageEnteredAt) / 1000;
+        const progress = Math.max(processState.progress, interpolateProgress(lastStage, secondsInStage, null));
+        if (progress > processState.progress) {
+          updateState({ progress });
+          emitter.emit('progress', {
+            stage: lastStage.id,
+            label: lastStage.label,
+            progress,
+            stageProgress: stageProgressFromOverall(progress, lastStage),
+            status: 'active',
+            timestamp: Date.now(),
+          });
+        }
+      }, 2000);
     }
 
     // Start liveness polling for recovered processes (H1)
@@ -653,6 +728,7 @@ function startRecoveryPoll(): void {
         stage: 'stopped',
         label: 'Stopped',
         progress: 0,
+        stageProgress: 0,
         status: 'completed',
         message: 'Recovered process died unexpectedly',
         timestamp: Date.now(),

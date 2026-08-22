@@ -33,7 +33,7 @@ export function GPUStats() {
               </div>
               <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
                 <div
-                  className={`h-full transition-all ${system.cpuUsage > 90 ? 'bg-red-500' : system.cpuUsage > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                  className={`h-full transition-[width] duration-500 ease-out ${system.cpuUsage > 90 ? 'bg-red-500' : system.cpuUsage > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
                   style={{ width: `${Math.min(system.cpuUsage, 100)}%` }}
                 />
               </div>
@@ -53,7 +53,7 @@ export function GPUStats() {
               </div>
               <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
                 <div
-                  className={`h-full transition-all ${system.ramUsage > 90 ? 'bg-red-500' : system.ramUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+                  className={`h-full transition-[width] duration-500 ease-out ${system.ramUsage > 90 ? 'bg-red-500' : system.ramUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
                   style={{ width: `${Math.min(system.ramUsage, 100)}%` }}
                 />
               </div>
@@ -67,7 +67,7 @@ export function GPUStats() {
                 </div>
                 <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
                   <div
-                    className={`h-full transition-all ${system.swapUsage > 90 ? 'bg-red-500' : system.swapUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+                    className={`h-full transition-[width] duration-500 ease-out ${system.swapUsage > 90 ? 'bg-red-500' : system.swapUsage > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
                     style={{ width: `${Math.min(system.swapUsage, 100)}%` }}
                   />
                 </div>
@@ -135,7 +135,7 @@ export function GPUStats() {
                 </div>
                 <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden">
                   <div
-                    className={`h-full transition-all ${memPct > 90 ? 'bg-red-500' : memPct > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+                    className={`h-full transition-[width] duration-500 ease-out ${memPct > 90 ? 'bg-red-500' : memPct > 75 ? 'bg-yellow-500' : 'bg-accent'}`}
                     style={{ width: `${memPct}%` }}
                   />
                 </div>

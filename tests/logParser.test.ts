@@ -1,59 +1,147 @@
 import { describe, it, expect } from 'vitest';
-import { parseLine, STAGES, type LogStage } from '../server/services/logParser.js';
+import { parseLine, isErrorLine, extractProgressPercent, interpolateProgress, STAGES } from '../server/services/logParser';
 
-describe('log parser', () => {
-  it('detects "Initializing" stage', () => {
-    const stage = parseLine('INFO 12-01 10:00:00 Initializing a VLLM engine');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('init');
+describe('logParser', () => {
+  describe('stage patterns', () => {
+    it('detects weights stage from "Loading model"', () => {
+      const stage = parseLine('INFO: Loading model weights...');
+      expect(stage?.id).toBe('weights');
+    });
+
+    it('detects weights stage from "Loading safetensors"', () => {
+      const stage = parseLine('Loading safetensors checkpoint shards');
+      expect(stage?.id).toBe('weights');
+    });
+
+    it('detects weights stage from "checkpoint shards"', () => {
+      const stage = parseLine('Loading checkpoint shards: 50% Completed |████      | 2/4');
+      expect(stage?.id).toBe('weights');
+    });
+
+    it('detects compile_backbone from "Using cache directory...backbone"', () => {
+      const stage = parseLine('Using cache directory: /home/.cache/vllm/torch_compile_cache/abc123/backbone');
+      expect(stage?.id).toBe('compile_backbone');
+    });
+
+    it('detects compile_backbone from "Dynamo bytecode transform"', () => {
+      const stage = parseLine('dynamo bytecode transform time: 3.45 s');
+      expect(stage?.id).toBe('compile_backbone');
+    });
+
+    it('detects compile_backbone from "Compiling...backbone"', () => {
+      const stage = parseLine('Compiling aot_inductor model for backbone');
+      expect(stage?.id).toBe('compile_backbone');
+    });
+
+    it('detects compile_eagle from "Using cache directory...eagle_head"', () => {
+      const stage = parseLine('Using cache directory: /home/.cache/vllm/torch_compile_cache/abc123/eagle_head');
+      expect(stage?.id).toBe('compile_eagle');
+    });
+
+    it('detects compile_eagle from "Compiling...eagle"', () => {
+      const stage = parseLine('Compiling aot_inductor model for eagle_head');
+      expect(stage?.id).toBe('compile_eagle');
+    });
+
+    it('detects cudagraph stage', () => {
+      const stage = parseLine('Capturing CUDA graph for 256 tokens');
+      expect(stage?.id).toBe('cudagraph');
+    });
+
+    it('detects kvcache stage', () => {
+      const stage = parseLine('KV cache memory: 4096 blocks allocated');
+      expect(stage?.id).toBe('kvcache');
+    });
+
+    it('detects kvcache stage from num_4k_blocks', () => {
+      const stage = parseLine('num_4k_blocks: 512');
+      expect(stage?.id).toBe('kvcache');
+    });
+
+    it('detects warmup stage', () => {
+      const stage = parseLine('torch.compile took 12.34 s in total');
+      expect(stage?.id).toBe('warmup');
+    });
+
+    it('detects server stage from "Uvicorn"', () => {
+      const stage = parseLine('INFO: Uvicorn running on http://0.0.0.0:8000');
+      expect(stage?.id).toBe('server');
+    });
+
+    it('does NOT detect "init" stage — removed', () => {
+      const stage = parseLine('Initializing a VLLM engine...');
+      expect(stage).toBeNull();
+    });
+
+    it('does NOT match "Loading weights took" as weights stage', () => {
+      const stage = parseLine('Loading safetensors took 5.2 seconds');
+      expect(stage).toBeNull();
+    });
   });
 
-  it('detects "Loading weights" stage', () => {
-    const stage = parseLine('INFO Loading model weights took 9.48 GiB');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('weights');
+  describe('isErrorLine', () => {
+    it('detects OutOfMemoryError', () => {
+      expect(isErrorLine('torch.OutOfMemoryError: CUDA out of memory')).toBe(true);
+    });
+
+    it('detects Traceback', () => {
+      expect(isErrorLine('Traceback (most recent call last):')).toBe(true);
+    });
+
+    it('does not false-positive on normal lines', () => {
+      expect(isErrorLine('Loading model weights...')).toBe(false);
+    });
   });
 
-  it('detects "profiled" stage', () => {
-    const stage = parseLine('INFO Memory profiling: 10.04 GiB available for KV cache');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('profile');
+  describe('extractProgressPercent', () => {
+    it('extracts tqdm-style percentage', () => {
+      expect(extractProgressPercent('50%|████      | 2/4')).toBe(50);
+    });
+
+    it('extracts "Completed" percentage', () => {
+      expect(extractProgressPercent('75.0% Completed |██████████| 3/4')).toBe(75);
+    });
+
+    it('extracts parenthesized percentage', () => {
+      expect(extractProgressPercent('Loading (25%)')).toBe(25);
+    });
+
+    it('returns null for non-progress lines', () => {
+      expect(extractProgressPercent('Loading model weights...')).toBeNull();
+    });
   });
 
-  it('detects "Capturing CUDA graphs" stage', () => {
-    const stage = parseLine('INFO Capturing CUDA graphs (batchsize 4)');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('cudagraph');
-  });
+  describe('interpolateProgress', () => {
+    const weightsStage = STAGES.find(s => s.id === 'weights')!;
+    const backboneStage = STAGES.find(s => s.id === 'compile_backbone')!;
+    const serverStage = STAGES.find(s => s.id === 'server')!;
 
-  it('detects "Compiling" stage', () => {
-    const stage = parseLine('INFO Compiling CUDA kernels...');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('compile');
-  });
+    it('uses real tqdm percentage for weights stage', () => {
+      const progress = interpolateProgress(weightsStage, 10, 50);
+      // 0 + (50/100) * 25 = 12.5
+      expect(progress).toBeCloseTo(12.5, 0);
+    });
 
-  it('detects server-ready stage', () => {
-    const stage = parseLine('INFO Uvicorn running on http://0.0.0.0:8000');
-    expect(stage).not.toBeNull();
-    expect(stage!.id).toBe('server');
-  });
+    it('starts at progressStart for compile stage at t=0', () => {
+      const progress = interpolateProgress(backboneStage, 0, null);
+      expect(progress).toBe(25);
+    });
 
-  it('returns null for unrelated lines', () => {
-    const stage = parseLine('Some random log output');
-    expect(stage).toBeNull();
-  });
+    it('asymptotically approaches progressEnd for compile stage', () => {
+      // After a long time, should be close to but never reach progressEnd
+      const progress = interpolateProgress(backboneStage, 600, null); // 10 min
+      expect(progress).toBeGreaterThan(45);
+      expect(progress).toBeLessThan(50); // never reaches 50
+    });
 
-  it('detects OOM error', () => {
-    const isError = parseLine('torch.cuda.OutOfMemoryError: CUDA out of memory.');
-    // OOM should not match any success stage
-    const stage = parseLine('torch.cuda.OutOfMemoryError: CUDA out of memory.');
-    expect(stage).toBeNull();
-  });
+    it('never returns a value below progressStart', () => {
+      const progress = interpolateProgress(backboneStage, 0, null);
+      expect(progress).toBeGreaterThanOrEqual(backboneStage.progressStart);
+    });
 
-  it('STAGES has ordered progress ranges', () => {
-    expect(STAGES.length).toBeGreaterThan(0);
-    for (let i = 1; i < STAGES.length; i++) {
-      expect(STAGES[i].progressStart).toBeGreaterThanOrEqual(STAGES[i - 1].progressEnd);
-    }
+    it('handles server stage correctly', () => {
+      const progress = interpolateProgress(serverStage, 0, null);
+      expect(progress).toBe(90);
+    });
   });
 });

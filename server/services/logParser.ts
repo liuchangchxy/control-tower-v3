@@ -6,21 +6,19 @@ export interface LogStage {
   progressEnd: number;
 }
 
-// STAGES order determines priority: first match wins (M6).
-// More specific patterns should come before broader ones.
+// STAGES: progress ranges are contiguous and monotonic.
+// Order matters — first match wins.
 export const STAGES: LogStage[] = [
-  { id: 'init',      label: 'Initializing',          pattern: /Initializing a VLLM/i,                                           progressStart: 0,  progressEnd: 5  },
-  { id: 'weights',   label: 'Loading model weights', pattern: /Loading model|Loading weights|model loading|Loading safetensors|checkpoint shards/i, progressStart: 5,  progressEnd: 25 },
-  { id: 'profile',   label: 'Profiling memory',       pattern: /profiled|Memory profiling|GPU memory|determining.*memory/i,      progressStart: 25, progressEnd: 45 },
-  { id: 'cudagraph', label: 'Capturing CUDA graphs',  pattern: /Capturing CUDA graphs?|cudagraph capture/i,                      progressStart: 45, progressEnd: 55 },
-  // H6 fix: all branches guarded by single negative lookahead to prevent
-  // "Memory pool" or "token blocks" from matching during CUDA graph lines.
-  { id: 'kvcache',   label: 'Allocating KV cache',   pattern: /^(?!.*CUDA graph)(?:.*KV cache memory|.*Allocating KV|token blocks|Memory pool)/i, progressStart: 55, progressEnd: 65 },
-  { id: 'compile',   label: 'Compiling kernels',      pattern: /Compiling|torch\.compile/i,                                       progressStart: 65, progressEnd: 85 },
-  { id: 'server',    label: 'Starting server',        pattern: /Uvicorn|startup complete|listening on/i,                          progressStart: 85, progressEnd: 95 },
+  { id: 'weights',           label: 'Loading model weights',   pattern: /Loading model\b|Loading (?:weight|safetensors)(?!.*\btook\b)|checkpoint shards/i,               progressStart: 0,  progressEnd: 25 },
+  { id: 'compile_backbone',  label: 'Compiling backbone',      pattern: /Using cache directory.*backbone|Dynamo bytecode transform|Compiling.*backbone/i,               progressStart: 25, progressEnd: 50 },
+  { id: 'compile_eagle',     label: 'Compiling eagle head',    pattern: /Using cache directory.*eagle_head|Compiling.*eagle/i,                                          progressStart: 50, progressEnd: 60 },
+  { id: 'cudagraph',         label: 'Capturing CUDA graphs',   pattern: /Capturing CUDA graphs?|CUDAGraphMode/i,                                                        progressStart: 60, progressEnd: 75 },
+  { id: 'kvcache',           label: 'Allocating KV cache',     pattern: /KV cache memory|Allocating KV|token blocks|Memory pool|num_\d+k_blocks/i,                      progressStart: 75, progressEnd: 80 },
+  { id: 'warmup',            label: 'Warming up model',        pattern: /init engine|warmup|torch\.compile took/i,                                                      progressStart: 80, progressEnd: 90 },
+  { id: 'server',            label: 'Starting server',         pattern: /Uvicorn|startup complete|listening on/i,                                                       progressStart: 90, progressEnd: 95 },
 ];
 
-// Error patterns (returns null from parseLine but detected separately)
+// Error patterns
 export const ERROR_PATTERNS: RegExp[] = [
   /OutOfMemoryError/i,
   /CUDA error/i,
@@ -35,9 +33,6 @@ export function isErrorLine(line: string): boolean {
   return ERROR_PATTERNS.some(p => p.test(line));
 }
 
-/**
- * Parse a single log line. Returns the matching stage, or null if no match.
- */
 export function parseLine(line: string): LogStage | null {
   for (const stage of STAGES) {
     if (stage.pattern.test(line)) return stage;
@@ -46,19 +41,16 @@ export function parseLine(line: string): LogStage | null {
 }
 
 /**
- * Try to extract a real percentage from tqdm-style progress bars in log lines.
- * Matches patterns like: "100%|██████████| 100/100" or "(50%)" or "50.0%"
- * Returns 0-100 if found, null otherwise.
+ * Extract real percentage from tqdm-style progress bars.
+ * "100%|██████████| 100/100" or "50.0%" or "(50%)"
  */
 export function extractProgressPercent(line: string): number | null {
-  // tqdm bar: "100%|" or " 50%|" or "50% Completed |"
   const tqdmMatch = line.match(/(\d+(?:\.\d+)?)\s*%\s*(?:Completed\s*)?[|█]/);
   if (tqdmMatch) {
     const pct = parseFloat(tqdmMatch[1]);
     if (pct >= 0 && pct <= 100) return pct;
   }
-  // Explicit percentage: "50.0%" or "(50%)"
-  const pctMatch = line.match(/(?:^|\s)(\d+(?:\.\d+)?)\s*%(?:\s|$|\))/);
+  const pctMatch = line.match(/(?:^|\s|\()(\d+(?:\.\d+)?)\s*%(?:\s|$|\))/);
   if (pctMatch) {
     const pct = parseFloat(pctMatch[1]);
     if (pct >= 0 && pct <= 100) return pct;
@@ -66,10 +58,6 @@ export function extractProgressPercent(line: string): number | null {
   return null;
 }
 
-/**
- * Find the latest completed stage for a set of log lines.
- * Iterates in reverse for efficiency (L3).
- */
 export function findLatestStage(lines: string[]): LogStage | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const stage = parseLine(lines[i]);
@@ -79,18 +67,36 @@ export function findLatestStage(lines: string[]): LogStage | null {
 }
 
 /**
- * Interpolate progress within a stage. If a real percent is available from
- * the log line, use it for any stage that reports progress (M7 fix);
- * otherwise fall back to time-based estimation.
+ * Calculate progress within a stage using an asymptotic curve.
+ *
+ * Design (inspired by llama.cpp's callback approach):
+ * - Weights stage: uses real tqdm percentage (the only source of real progress)
+ * - All other stages: asymptotic curve that approaches progressEnd but NEVER reaches it
+ *   This ensures the bar keeps moving even during long stages, and never gets stuck.
+ *
+ * Formula: progressStart + range * (1 - 0.9 * exp(-t / (range * 6)))
+ * - At t=0: starts at progressStart (no jump)
+ * - Fills 50% of range in ~range*4 seconds (realistic for actual stage durations)
+ * - Never caps: even after 10 minutes, shows ~95% of range (not 100%)
+ * - Different ranges fill at different speeds naturally
+ *
+ * Reference: llama.cpp uses a simple float callback (0.0→1.0) from the loader.
+ * vLLM uses tqdm for weights only. No framework provides a unified startup bar.
  */
 export function interpolateProgress(stage: LogStage, secondsInStage: number, realPercent?: number | null): number {
-  // Use real percentage for stages that report tqdm-style or explicit progress (M7)
-  if (realPercent != null && (stage.id === 'weights' || stage.id === 'compile')) {
+  // Weights stage: use real tqdm percentage
+  if (realPercent != null && stage.id === 'weights') {
     const range = stage.progressEnd - stage.progressStart;
-    return Math.round(stage.progressStart + (realPercent / 100) * range);
+    return stage.progressStart + (realPercent / 100) * range;
   }
-  // Fallback: time-based estimation (60s per stage)
-  const duration = 60;
-  const t = Math.min(1, secondsInStage / duration);
-  return Math.round(stage.progressStart + (stage.progressEnd - stage.progressStart) * t);
+
+  // Guard: if stageEnteredAt was not set (t=0 or negative), return start
+  if (secondsInStage <= 0) return stage.progressStart;
+
+  // Asymptotic curve: never reaches progressEnd, keeps moving
+  const range = stage.progressEnd - stage.progressStart;
+  const halfLife = range * 4; // seconds to fill 50% of range
+  const decay = Math.log(2) / halfLife;
+  const fillRatio = 1 - 0.9 * Math.exp(-secondsInStage * decay);
+  return stage.progressStart + range * fillRatio;
 }

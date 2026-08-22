@@ -38,6 +38,7 @@ export interface ProgressEvent {
   stage: string;
   label: string;
   progress: number;
+  stageProgress: number; // 0-100 within the current stage
   status: 'active' | 'completed' | 'error';
   message?: string;
   timestamp: number;

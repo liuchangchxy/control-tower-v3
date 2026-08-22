@@ -19,19 +19,20 @@ interface LogChunk {
 /** Try to detect which stage a log line belongs to. */
 function detectStage(line: string): string {
   const lower = line.toLowerCase();
-  if (/loading model|loading weights|load.*weight/.test(lower)) return 'weights';
-  if (/profiling|memory profiling/.test(lower)) return 'profile';
-  if (/kv cache|kvcache|allocating/.test(lower)) return 'kvcache';
-  if (/cuda graph|cuda.*capture|capturing/.test(lower)) return 'cudagraph';
-  if (/compil|kernel|triton/.test(lower)) return 'compile';
-  if (/server.*start|listen|bind|serving/.test(lower)) return 'server';
-  if (/init|boot|start/.test(lower)) return 'init';
-  return 'init';
+  if (/using cache directory.*backbone|dynamo bytecode transform|compiling.*backbone/.test(lower)) return 'compile_backbone';
+  if (/using cache directory.*eagle|compiling.*eagle/.test(lower)) return 'compile_eagle';
+  if (/loading model|loading weights|checkpoint shards|load.*safetensors/.test(lower)) return 'weights';
+  if (/cuda graph|cuda.*capture|capturing|cudagraphmode/.test(lower)) return 'cudagraph';
+  if (/kv cache|kvcache|allocating|num_\d+k_blocks/.test(lower)) return 'kvcache';
+  if (/init engine|warmup|torch\.compile took/.test(lower)) return 'warmup';
+  if (/uvicorn|startup complete|listening on|server.*start/.test(lower)) return 'server';
+  return 'weights'; // default bucket — no "init" stage
 }
 
 function groupByStage(lines: string[]): LogChunk[] {
   const chunks: LogChunk[] = [];
-  let current: LogChunk = { stageId: 'init', label: 'Initializing', lines: [] };
+  const defaultStage = STAGES[0]; // weights
+  let current: LogChunk = { stageId: defaultStage.id, label: defaultStage.label, lines: [] };
 
   for (const line of lines) {
     const stageId = detectStage(line);

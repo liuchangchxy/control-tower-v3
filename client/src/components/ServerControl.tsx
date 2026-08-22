@@ -57,6 +57,8 @@ export function ServerControl() {
   }, [status?.status, status?.error, status?.servedName]);
 
   const isRunning = status?.status === 'ready' || status?.status === 'loading' || status?.status === 'starting';
+  // Kill is available when running OR when there might be residual processes (error/stopped with a PID)
+  const canKill = isRunning || (status?.status === 'error' && status?.pid != null) || (status?.status === 'stopped' && status?.pid != null);
 
   const lastReadyExperiment = experiments
     ?.filter(e => e.status === 'ready')
@@ -84,7 +86,7 @@ export function ServerControl() {
         <Button onClick={() => setShowStartModal(true)} disabled={isRunning} variant="primary">Start</Button>
         <Button onClick={() => restart.mutate()} disabled={!isRunning} loading={restart.isPending} variant="secondary">Restart</Button>
         <Button onClick={() => stop.mutate()} disabled={!isRunning} loading={stop.isPending} variant="secondary">Stop</Button>
-        <Button onClick={() => kill.mutate()} disabled={!isRunning} loading={kill.isPending} variant="danger">Kill</Button>
+        <Button onClick={() => kill.mutate()} disabled={!canKill} loading={kill.isPending} variant="danger">Kill</Button>
         <Button
           onClick={async () => {
             if (!lastReadyExperiment) return;
