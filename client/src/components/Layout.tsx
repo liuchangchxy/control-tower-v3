@@ -19,7 +19,7 @@ export function Layout() {
       </a>
       <aside className="w-48 border-r border-border bg-bg-secondary p-3 flex flex-col gap-1">
         <div className="text-sm font-semibold text-text-primary px-2 mb-3">Control Tower</div>
-        <nav aria-label="Main navigation">
+        <nav aria-label="Main navigation" className="flex flex-col gap-1">
         {NAV.map(item => (
           <NavLink
             key={item.to}
