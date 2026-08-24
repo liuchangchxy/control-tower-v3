@@ -46,6 +46,18 @@ export interface LauncherHandoff {
   launcherRevision?: string;
   capabilities?: LauncherCapabilities;
   backend?: LauncherBackendEvidence;
+  /** Optional runtime evidence from identity-scoped reconciliation. */
+  runtimeEvidence?: {
+    state: 'present' | 'absent' | 'indeterminate';
+    pid: number | null;
+    pgid: number | null;
+    port: number;
+    apiReachable: boolean;
+    modelMatches: boolean;
+    processMatches: boolean;
+    detail: string;
+  };
+  apiAvailable?: boolean;
 }
 
 export interface LauncherRequest {
@@ -120,6 +132,19 @@ export function validateLauncherHandoff(value: unknown): asserts value is Launch
   if (handoff.sequence !== undefined && (!Number.isInteger(handoff.sequence) || handoff.sequence < 0)) throw new Error('Invalid launcher sequence');
   if (handoff.capabilities !== undefined) validateCapabilities(handoff.capabilities);
   if (handoff.backend !== undefined) validateBackendEvidence(handoff.backend);
+  if (handoff.runtimeEvidence !== undefined) {
+    const evidence = handoff.runtimeEvidence;
+    if (!evidence || typeof evidence !== 'object') throw new Error('Invalid launcher runtime evidence');
+    if (evidence.state !== 'present' && evidence.state !== 'absent' && evidence.state !== 'indeterminate') throw new Error('Invalid launcher runtime evidence state');
+    if (evidence.pid !== null && (!Number.isInteger(evidence.pid) || evidence.pid <= 1)) throw new Error('Invalid launcher runtime evidence PID');
+    if (evidence.pgid !== null && (!Number.isInteger(evidence.pgid) || evidence.pgid <= 1)) throw new Error('Invalid launcher runtime evidence PGID');
+    if (!Number.isInteger(evidence.port) || evidence.port < 1 || evidence.port > 65535) throw new Error('Invalid launcher runtime evidence port');
+    for (const key of ['apiReachable', 'modelMatches', 'processMatches'] as const) {
+      if (typeof evidence[key] !== 'boolean') throw new Error(`Invalid launcher runtime evidence ${key}`);
+    }
+    if (typeof evidence.detail !== 'string') throw new Error('Invalid launcher runtime evidence detail');
+  }
+  if (handoff.apiAvailable !== undefined && typeof handoff.apiAvailable !== 'boolean') throw new Error('Invalid launcher API availability');
 }
 
 export function parseLauncherHandoff(stdout: string): LauncherHandoff {

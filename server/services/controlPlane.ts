@@ -9,9 +9,11 @@ import { launcherClient, type LauncherHandoff } from './launcherClient.js';
 import { startMetricsScraping, stopMetricsScraping } from './vllmMetrics.js';
 import { readEnvFile } from '../utils.js';
 import { resolveConfig, type ConfigSnapshot } from '../config.js';
+import { runtimeInspector } from './runtimeInspector.js';
 
 export interface ControlPlaneDependencies {
   launcher?: typeof launcherClient;
+  inspector?: typeof runtimeInspector;
 }
 
 export class ControlPlane {
@@ -31,9 +33,11 @@ export class ControlPlane {
   private readonly recentLines: string[] = [];
   private readonly emitter = new EventEmitter();
   private readonly launcher: typeof launcherClient;
+  private readonly inspector: typeof runtimeInspector;
 
   constructor(deps: ControlPlaneDependencies = {}) {
     this.launcher = deps.launcher ?? launcherClient;
+    this.inspector = deps.inspector ?? runtimeInspector;
   }
 
   getStatus(): VLLMProcess {
@@ -74,18 +78,22 @@ export class ControlPlane {
     if (canonicalProfile && this.canonicalProfileRef(authoritativeProfilePath) !== canonicalProfile) {
       try { authoritativeProfilePath = this.resolveProfile(canonicalProfile).profilePath; } catch { authoritativeProfilePath = null; }
     }
-    const status = next.status === 'ready' ? 'ready' : next.status === 'error' ? 'error' : next.status === 'stopped' ? 'stopped' : 'loading';
+    const evidence = next.runtimeEvidence;
+    const orphaned = next.status === 'stopped' && evidence?.state === 'present' && evidence.processMatches;
+    const status = orphaned ? 'unknown' : next.status === 'ready' ? 'ready' : next.status === 'error' ? 'error' : next.status === 'stopped' ? 'stopped' : 'loading';
     const backend = next.backend ?? this.processState.backend ?? null;
     const capabilities = next.capabilities ?? this.processState.launcherCapabilities ?? null;
     this.updateState({
-      pid: next.pid, pgid: next.pgid, profile: canonicalProfile, profilePath: authoritativeProfilePath,
-      status, startedAt: next.startedAt || this.processState.startedAt, logFile: next.logFile, servedName: next.servedName,
-      port: next.port, error: next.error, errorDiagnosis: next.error ? analyzeError([next.error]) : null,
-      healthDetail: status === 'ready' ? 'ready' : status === 'error' ? next.error || 'launcher error' : status === 'stopped' ? 'stopped' : 'loading model',
+      pid: orphaned ? (evidence?.pid ?? this.processState.pid) : next.pid, pgid: orphaned ? (evidence?.pgid ?? this.processState.pgid) : next.pgid, profile: canonicalProfile, profilePath: authoritativeProfilePath,
+      status: orphaned ? 'unknown' : status, startedAt: next.startedAt || this.processState.startedAt, logFile: next.logFile ?? this.processState.logFile, servedName: next.servedName ?? this.processState.servedName,
+      port: next.port, error: orphaned ? (evidence?.detail || 'Orphaned vLLM runtime detected') : next.error, errorDiagnosis: next.error ? analyzeError([next.error]) : this.processState.errorDiagnosis,
+      healthDetail: orphaned ? (evidence?.detail || 'orphaned runtime detected') : status === 'ready' ? 'ready' : status === 'error' ? next.error || 'launcher error' : status === 'stopped' ? 'stopped' : 'loading model',
       progress: status === 'ready' ? 100 : this.processState.progress,
       launcherRevision: next.launcherRevision ?? next.capabilities?.launcherRevision ?? this.processState.launcherRevision ?? null,
       launcherCapabilities: capabilities,
       backend,
+      runtimeEvidence: evidence ?? this.processState.runtimeEvidence ?? null,
+      apiAvailable: next.apiAvailable ?? evidence?.apiReachable ?? (status === 'ready'),
     });
     if (status === 'ready') startMetricsScraping(next.port, next.generation ?? ''); else stopMetricsScraping();
     if (next.logFile && next.logFile !== previousLogFile) this.startLogTailer(next.logFile);
@@ -96,7 +104,9 @@ export class ControlPlane {
     this.pollInFlight = true;
     try {
       const next = await this.launcher.status();
-      if (generation === this.lifecycleGeneration) this.applyHandoff(next);
+      const evidence = await this.inspector.inspect({ port: next.port, servedName: next.servedName, modelDir: next.modelDir });
+      const reconciled = { ...next, runtimeEvidence: evidence, apiAvailable: evidence.apiReachable && evidence.modelMatches };
+      if (generation === this.lifecycleGeneration) this.applyHandoff(reconciled);
     } catch (err) { console.error('Launcher status failed:', err); }
     finally { this.pollInFlight = false; }
   }
@@ -138,15 +148,17 @@ export class ControlPlane {
     });
     try {
       const next = action === 'kill' ? await this.launcher.kill() : await this.launcher.stop();
-      this.applyHandoff(next);
-      if (next.status !== 'stopped' || next.pid !== null) {
-        const error = next.error || `Launcher reported ${next.status} after ${action}; process exit is not confirmed`;
+      const evidence = await this.inspector.inspect({ port: next.port, servedName: next.servedName, modelDir: next.modelDir });
+      const reconciled = { ...next, runtimeEvidence: evidence, apiAvailable: evidence.apiReachable && evidence.modelMatches };
+      this.applyHandoff(reconciled);
+      if (reconciled.status !== 'stopped' || reconciled.pid !== null || evidence.state === 'present') {
+        const error = reconciled.error || `Launcher reported ${reconciled.status} after ${action}; process exit is not confirmed`;
         this.updateState({
           status: 'unknown',
           lifecycleError: error,
           lifecycleConfirmed: false,
           error,
-          healthDetail: 'launcher stopped state not confirmed',
+          healthDetail: reconciled.runtimeEvidence?.detail || 'launcher stopped state not confirmed',
         });
         throw new Error(error);
       }
@@ -177,12 +189,26 @@ export class ControlPlane {
     const persisted = loadState();
     try {
       const current = await this.launcher.status();
-      if (current.status === 'stopped' || current.pid === null) { await this.cleanup(); return; }
-      const profile = current.profile;
+      const evidence = await this.inspector.inspect({ port: current.port, servedName: current.servedName, modelDir: current.modelDir });
+      const reconciled = { ...current, runtimeEvidence: evidence, apiAvailable: evidence.apiReachable && evidence.modelMatches };
+      if (reconciled.status === 'stopped' || reconciled.pid === null) {
+        if (evidence.state === 'present' && evidence.processMatches) {
+          const profile = reconciled.profile;
+          let profilePath: string | null = null;
+          if (profile) { try { profilePath = this.resolveProfile(profile).profilePath; } catch {} }
+          this.applyHandoff(reconciled, undefined, profilePath || undefined);
+          this.persist(profile || null, profilePath || null, reconciled);
+          this.startLauncherPoll();
+          return;
+        }
+        await this.cleanup();
+        return;
+      }
+      const profile = reconciled.profile;
       let profilePath: string | null = null;
       if (profile) { try { profilePath = this.resolveProfile(profile).profilePath; } catch {} }
-      this.applyHandoff(current, undefined, profilePath || undefined);
-      this.persist(profile || null, profilePath || null, current);
+      this.applyHandoff(reconciled, undefined, profilePath || undefined);
+      this.persist(profile || null, profilePath || null, reconciled);
       this.startLauncherPoll();
     } catch (err) {
       console.error('Launcher recovery failed:', err);

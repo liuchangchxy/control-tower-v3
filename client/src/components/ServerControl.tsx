@@ -61,6 +61,8 @@ export function ServerControl() {
 
   const isRunning = status?.status === 'ready' || status?.status === 'loading' || status?.status === 'starting' || status?.status === 'stopping' || status?.status === 'killing' || status?.status === 'unknown';
   // Keep kill available while lifecycle completion is unconfirmed so a failed attempt is recoverable.
+  const canStart = !isRunning && status?.status !== 'unknown';
+  // Keep kill available while lifecycle completion is unconfirmed so a failed attempt is recoverable.
   const canKill = isRunning || status?.pid != null;
 
   const lastReadyExperiment = experiments
@@ -86,7 +88,7 @@ export function ServerControl() {
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        <Button onClick={() => setShowStartModal(true)} disabled={isRunning} variant="primary">Start</Button>
+        <Button onClick={() => setShowStartModal(true)} disabled={!canStart} variant="primary">Start</Button>
         <Button onClick={() => restart.mutate()} disabled={!isRunning} loading={restart.isPending} variant="secondary">Restart</Button>
         <Button onClick={() => stop.mutate()} disabled={!isRunning || status?.status === 'stopping' || status?.status === 'killing'} loading={stop.isPending} variant="secondary">Stop</Button>
         <Button onClick={() => kill.mutate()} disabled={!canKill || kill.isPending} loading={kill.isPending} variant="danger">Kill</Button>
@@ -105,6 +107,12 @@ export function ServerControl() {
           variant="secondary"
         >Rollback</Button>
       </div>
+
+      {status?.runtimeEvidence?.state === 'present' && (
+        <div className="mt-3 p-3 bg-amber-900/30 border border-amber-700 rounded text-sm text-amber-200">
+          Runtime evidence is present but launcher identity is stale. Start is blocked; use Kill only after confirming this is the configured vLLM process.
+        </div>
+      )}
 
       {status?.error && (
         <div className="mt-3 p-3 bg-red-900/30 border border-red-800 rounded text-sm space-y-2">

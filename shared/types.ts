@@ -50,6 +50,19 @@ export interface VLLMProcess {
     source: 'launcher' | 'log' | null;
     detail: string | null;
   } | null;
+  /** Evidence from an identity-scoped runtime reconciliation probe. */
+  runtimeEvidence?: {
+    state: 'present' | 'absent' | 'indeterminate';
+    pid: number | null;
+    pgid: number | null;
+    port: number;
+    apiReachable: boolean;
+    modelMatches: boolean;
+    processMatches: boolean;
+    detail: string;
+  } | null;
+  /** Whether the configured model API is verified and usable for chat. */
+  apiAvailable?: boolean;
   /** Last lifecycle operation and whether launcher postcondition was confirmed. */
   lifecycleAction?: 'stop' | 'kill' | null;
   lifecycleError?: string | null;

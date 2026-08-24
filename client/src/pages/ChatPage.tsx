@@ -21,7 +21,7 @@ type ThinkingEffort = typeof THINKING_EFFORTS[number];
 
 export function ChatPage() {
   const { data: status } = useServerStatus();
-  const isReady = status?.status === 'ready';
+  const isReady = status?.status === 'ready' || (status?.status === 'unknown' && status.apiAvailable === true && status.runtimeEvidence?.modelMatches === true);
 
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [input, setInput] = useState('');
@@ -204,7 +204,7 @@ export function ChatPage() {
         <div ref={containerRef} className="flex-1 overflow-y-auto space-y-3 mb-4 p-1" aria-live="polite" aria-label="Chat messages">
           {messages.length === 0 && (
             <div className="text-text-muted text-sm text-center mt-20">
-              Start a conversation with the model. The server must be in ready state.
+              {isReady ? 'Start a conversation with the model.' : status?.status === 'unknown' ? 'Runtime identity is not safe for lifecycle control; chat is unavailable until it is reconciled.' : 'Start a conversation with the model. The server must be in ready state.'}
             </div>
           )}
           {messages.map(msg => (
