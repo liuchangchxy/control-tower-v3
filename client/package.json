@@ -1,5 +1,5 @@
 {
-  "name": "control-tower-v3-client",
+  "name": "vllm-2080ti-control-panel-client",
   "version": "3.0.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,10 @@
     "react": "^18.2.0",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.3"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.22.3",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",

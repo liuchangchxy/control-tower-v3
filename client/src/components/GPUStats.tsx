@@ -42,7 +42,7 @@ export function GPUStats() {
             <div className="flex justify-between items-baseline">
               <div className="text-text-muted">CPU Temp</div>
               <div className={`font-mono ${system.cpuTemp === null ? 'text-text-secondary' : system.cpuTemp >= 80 ? 'text-red-400' : system.cpuTemp >= 70 ? 'text-yellow-400' : 'text-green-400'}`}>
-                {system.cpuTemp !== null ? `${system.cpuTemp}°C` : 'N/A'}
+                {system.cpuTemp !== null ? `${Math.round(system.cpuTemp)}°C` : 'N/A'}
               </div>
             </div>
             {/* RAM */}
@@ -89,7 +89,7 @@ export function GPUStats() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Temperature</div>
-                  <div className={`font-mono ${tempColor}`}>{gpu.temperature}°C</div>
+                  <div className={`font-mono ${tempColor}`}>{Math.round(gpu.temperature)}°C</div>
                 </div>
                 <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Power</div>

@@ -21,6 +21,12 @@ export function ProfileCard({ profile, onDelete }: Props) {
         )}
       </div>
 
+      <div className="mb-3 text-xs text-text-muted">
+        {profile.writable
+          ? 'Local user profile: editable experiment/override. It is not automatically equivalent to a repository preset.'
+          : 'Repository profile: read-only canonical preset/template supplied by the runtime.'}
+      </div>
+
       <div className="flex flex-wrap gap-1 mb-3">
         {f.SERVED_NAME && <Badge tone="info">{f.SERVED_NAME}</Badge>}
         {f.MODEL_VARIANT && <Badge tone="neutral">{f.MODEL_VARIANT}</Badge>}

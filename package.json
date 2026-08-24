@@ -1,5 +1,5 @@
 {
-  "name": "control-tower-v3",
+  "name": "vllm-2080ti-control-panel",
   "version": "3.0.0",
   "type": "module",
   "private": true,

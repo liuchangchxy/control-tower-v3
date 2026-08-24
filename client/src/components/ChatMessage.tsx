@@ -1,5 +1,6 @@
 import { memo, useState } from 'react';
 import { cn } from '../lib/cn';
+import { renderMarkdown } from '../lib/markdown';
 
 export interface ChatMessageData {
   id: string;
@@ -46,7 +47,10 @@ export const ChatMessage = memo(function ChatMessage({ message }: Props) {
             )}
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        <div
+          className="chat-markdown whitespace-pre-wrap break-words"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content || (message.reasoning ? '' : '…')) }}
+        />
         {!isUser && message.ttftMs !== undefined && (
           <div className="mt-1.5 text-xs text-text-muted font-mono border-t border-border/50 pt-1.5">
             TTFT: {message.ttftMs.toFixed(0)}ms | {message.tokPerSec?.toFixed(1) ?? '?'} tok/s | {message.tokenCount ?? '?'} tokens

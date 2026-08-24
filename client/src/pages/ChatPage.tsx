@@ -3,6 +3,10 @@ import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { ChatMessage, type ChatMessageData } from '../components/ChatMessage';
 import { useServerStatus } from '../hooks/useServer';
+import { createChatStreamParser } from '../lib/chatStream';
+import { ChatHistory } from '../components/ChatHistory';
+import { useChatHistory, useSaveChat } from '../hooks/useChatHistory';
+import type { ChatConversation } from '../../../shared/chat';
 
 let nextId = 0;
 function genId() {
@@ -21,9 +25,25 @@ type ThinkingEffort = typeof THINKING_EFFORTS[number];
 
 export function ChatPage() {
   const { data: status } = useServerStatus();
+  const { data: history = [] } = useChatHistory();
+  const saveChat = useSaveChat();
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessageData[]>([]);
+
   const isReady = status?.status === 'ready' || (status?.status === 'unknown' && status.apiAvailable === true && status.runtimeEvidence?.modelMatches === true);
 
-  const [messages, setMessages] = useState<ChatMessageData[]>([]);
+  useEffect(() => {
+    if (!conversationId && history[0]) {
+      setConversationId(history[0].id);
+      setMessages(history[0].messages);
+    }
+  }, [conversationId, history]);
+
+  const selectConversation = (conversation: ChatConversation) => {
+    setConversationId(conversation.id);
+    setMessages(conversation.messages);
+  };
+  const newConversation = () => { setConversationId(null); setMessages([]); };
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [enableThinking, setEnableThinking] = useState(true);
@@ -66,6 +86,8 @@ export function ChatPage() {
     let tokenCount = 0;
     let buffer = '';
     let reasoningBuffer = '';
+    const parser = createChatStreamParser();
+    let completionTokens: number | null = null;
 
     try {
       abortRef.current = new AbortController();
@@ -97,64 +119,63 @@ export function ChatPage() {
       if (!reader) throw new Error('No response body');
 
       const decoder = new TextDecoder();
-      let sseBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        sseBuffer += decoder.decode(value, { stream: true });
-        const lines = sseBuffer.split('\n');
-        sseBuffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(':')) continue;
-          if (!trimmed.startsWith('data: ')) continue;
-
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') break;
-
-          try {
-            const chunk: SSEChunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta;
-            if (delta?.reasoning_content) {
-              if (firstTokenTime === null) firstTokenTime = Date.now();
-              tokenCount++;
-              reasoningBuffer += delta.reasoning_content;
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === assistantMsg.id ? { ...m, reasoning: reasoningBuffer } : m
-                )
-              );
-            }
-            if (delta?.content) {
-              if (firstTokenTime === null) firstTokenTime = Date.now();
-              tokenCount++;
-              buffer += delta.content;
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === assistantMsg.id ? { ...m, content: buffer } : m
-                )
-              );
-            }
-          } catch {
-            // skip malformed JSON lines
+        const decoded = decoder.decode(value, { stream: true });
+        for (const event of parser.push(decoded)) {
+          if (event.done) { await reader.cancel(); break; }
+          if (event.error) throw new Error(event.error);
+          const delta = event.delta;
+          if (event.usage?.completion_tokens != null) completionTokens = event.usage.completion_tokens;
+          const reasoning = delta.reasoning_content ?? delta.reasoning ?? '';
+          if (reasoning) {
+            if (firstTokenTime === null) firstTokenTime = Date.now();
+            reasoningBuffer += reasoning;
+            setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, reasoning: reasoningBuffer } : m));
+          }
+          if (delta.content) {
+            if (firstTokenTime === null) firstTokenTime = Date.now();
+            buffer += delta.content;
+            setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: buffer } : m));
           }
         }
       }
 
+      for (const event of parser.finish()) {
+        if (event.error) throw new Error(event.error);
+        if (event.usage?.completion_tokens != null) completionTokens = event.usage.completion_tokens;
+        const reasoning = event.delta.reasoning_content ?? event.delta.reasoning ?? '';
+        if (reasoning) reasoningBuffer += reasoning;
+        if (event.delta.content) buffer += event.delta.content;
+      }
+
       const ttft = firstTokenTime !== null ? firstTokenTime - requestSentAt : 0;
       const elapsed = firstTokenTime !== null ? (Date.now() - firstTokenTime) : 0;
-      const tokPerSec = elapsed > 0 ? (tokenCount / (elapsed / 1000)) : 0;
+      const measuredTokens = completionTokens ?? buffer.split(/\s+/).filter(Boolean).length;
+      const tokPerSec = elapsed > 0 && measuredTokens > 0 ? (measuredTokens / (elapsed / 1000)) : 0;
 
       setMessages(prev =>
         prev.map(m =>
           m.id === assistantMsg.id
-            ? { ...m, ttftMs: ttft, tokPerSec, tokenCount }
+            ? { ...m, reasoning: reasoningBuffer || m.reasoning, content: buffer, ttftMs: ttft, tokPerSec, tokenCount: measuredTokens }
             : m
         )
       );
+      const savedMessages = [...messages, userMsg, { ...assistantMsg, reasoning: reasoningBuffer || undefined, content: buffer, ttftMs: ttft, tokPerSec, tokenCount: measuredTokens }];
+      const conversation: ChatConversation = {
+        id: conversationId ?? `chat-${Date.now()}`,
+        title: text.slice(0, 80),
+        createdAt: history.find(item => item.id === conversationId)?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+        model: status?.servedName ?? null,
+        profile: status?.profile ?? null,
+        messages: savedMessages,
+      };
+      setConversationId(conversation.id);
+      await saveChat.mutateAsync(conversation);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         const cancelContent = buffer
@@ -190,7 +211,8 @@ export function ChatPage() {
   const apiUrl = `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/v1`;
 
   return (
-    <div className="flex flex-col h-full max-h-[calc(100vh-3rem)]">
+    <div className="flex h-full max-h-[calc(100vh-3rem)]">
+      <ChatHistory selectedId={conversationId} onSelect={selectConversation} onNew={newConversation} />
       <Card className="flex-1 flex flex-col overflow-hidden">
         {/* API endpoint info */}
         {isReady && (

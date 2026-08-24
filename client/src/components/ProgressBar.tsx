@@ -46,10 +46,10 @@ export function ProgressBar() {
 
   if (!status || status.status === 'stopped' || status.status === 'ready') return null;
 
-  const pct = progress?.progress ?? 0;
+  const pct = progress?.progress ?? status.progress ?? 0;
   const currentStageId = progress?.stage;
   const isError = status.status === 'error' || progress?.status === 'error';
-  const detail = progress?.label || status.healthDetail || 'Loading...';
+  const detail = progress?.label || status.healthDetail || (status.status === 'starting' ? 'Starting vLLM server...' : 'Loading model...');
 
   return (
     <div className="bg-bg-secondary border border-border rounded-[var(--radius-lg)] p-4">

@@ -9,6 +9,7 @@ import { logsRouter } from './routes/logs.js';
 import { benchmarkRouter } from './routes/benchmark.js';
 import { experimentsRouter } from './routes/experiments.js';
 import { settingsRouter } from './routes/settings.js';
+import { chatHistoryRouter } from './routes/chatHistory.js';
 
 export interface RuntimeEndpointResolver {
   getEndpoint(): string;
@@ -82,6 +83,7 @@ export function createApp(deps: AppDependencies): express.Express {
   app.use('/api/benchmark', benchmarkRouter);
   app.use('/api/experiments', experimentsRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/chat-history', chatHistoryRouter);
   app.use('/v1', (req, res) => proxyToVLLM(req, res, deps));
 
   const clientDist = deps.clientDist ?? path.join(deps.home, 'client', 'dist');
