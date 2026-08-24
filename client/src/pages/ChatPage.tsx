@@ -20,7 +20,7 @@ interface SSEChunk {
   }>;
 }
 
-const THINKING_EFFORTS = ['low', 'medium', 'high'] as const;
+const THINKING_EFFORTS = ['low', 'medium', 'xhigh'] as const;
 type ThinkingEffort = typeof THINKING_EFFORTS[number];
 
 export function ChatPage() {
