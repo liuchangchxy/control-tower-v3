@@ -37,7 +37,7 @@ settingsRouter.put('/', (req, res) => {
     for (const [key, value] of Object.entries(newConfig)) {
       const field = CONFIG_FIELDS[key];
       if (!field) { errors.push(`Unknown field: ${key}`); continue; }
-      if (field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) errors.push(`${key} must be a number`);
+      if (field.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value) || (key === 'port' && (!Number.isInteger(value) || value < 1 || value > 65535)))) errors.push(`${key} must be a valid number`);
       if (field.type === 'string' && (typeof value !== 'string' || value.includes('..'))) errors.push(`${key} must be a valid path without '..' segments`);
     }
     if (errors.length) return res.status(400).json({ ok: false, error: errors.join('; ') });

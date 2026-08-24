@@ -87,8 +87,9 @@ export class ControlPlane {
       launcherCapabilities: capabilities,
       backend,
     });
-    if (status === 'ready') startMetricsScraping(next.port); else stopMetricsScraping();
+    if (status === 'ready') startMetricsScraping(next.port, next.generation ?? ''); else stopMetricsScraping();
     if (next.logFile && next.logFile !== previousLogFile) this.startLogTailer(next.logFile);
+    if (status === 'stopped' && this.launcherPoll) void this.cleanup();
   }
   private async pollLauncher() {
     if (this.pollInFlight) return;
@@ -102,12 +103,20 @@ export class ControlPlane {
   }
   private startLauncherPoll() { if (this.launcherPoll) clearInterval(this.launcherPoll); const generation = ++this.lifecycleGeneration; this.launcherPoll = setInterval(() => { if (generation === this.lifecycleGeneration) void this.pollLauncher(); }, 2000); }
   private stopLauncherPoll() { ++this.lifecycleGeneration; if (this.launcherPoll) { clearInterval(this.launcherPoll); this.launcherPoll = null; } }
+  private resetRunState() {
+    this.recentLines.length = 0;
+    this.lastStage = null;
+    this.stageEnteredAt = 0;
+    this.updateState({ progress: 0, error: null, errorDiagnosis: null, backend: null });
+  }
+
   private stageProgress(overall: number, stage: LogStage) { const range = stage.progressEnd - stage.progressStart; return range <= 0 ? 100 : Math.min(100, Math.max(0, Math.round(((overall - stage.progressStart) / range) * 100))); }
   private emitProgress(stage: string, label: string, progress: number, status: ProgressEvent['status'], message?: string) { this.emitter.emit('progress', { stage, label, progress, stageProgress: stage === 'ready' ? 100 : 0, status, message, timestamp: Date.now() }); }
   private setProgress(stage: LogStage, raw: number) { const progress = Math.max(this.processState.progress, Math.round(raw)); this.updateState({ progress, healthDetail: stage.label }); this.emitter.emit('progress', { stage: stage.id, label: stage.label, progress, stageProgress: this.stageProgress(progress, stage), status: 'active', timestamp: Date.now() }); }
 
   async start(profileRef: string): Promise<void> { return this.withLock(async () => {
     if (this.processState.status !== 'stopped') throw new Error(`Cannot start: status is ${this.processState.status}`);
+    this.resetRunState();
     const { profilePath, profile } = this.resolveProfile(profileRef); if (!profile.SERVED_NAME) throw new Error('Profile is missing SERVED_NAME');
     const c = this.config();
     const next = await this.launcher.start({ profile: profileRef, modelDir: c.modelDir, mode: 'fast', gpuDevices: '0,1', tpSize: profile.TP_SIZE ?? 2, port: profile.PORT ?? 8000, serviceScope: 'local' });
@@ -115,6 +124,7 @@ export class ControlPlane {
   }); }
   async restart(): Promise<void> { return this.withLock(async () => {
     if (!this.processState.profile) throw new Error('No profile to restart with');
+    this.resetRunState();
     const { profilePath, profile } = this.resolveProfile(this.processState.profile); const c = this.config();
     const next = await this.launcher.restart({ profile: this.processState.profile, modelDir: c.modelDir, mode: 'fast', gpuDevices: '0,1', tpSize: profile.TP_SIZE ?? 2, port: this.processState.port, serviceScope: 'local' });
     this.applyHandoff(next, undefined, profilePath); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
