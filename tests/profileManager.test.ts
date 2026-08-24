@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { listProfiles, getProfile, createProfile, updateProfile, deleteProfile, validateProfile } from '../server/services/profileManager.js';
+import { listProfiles, getProfile, createProfile, cloneProfile, updateProfile, deleteProfile, validateProfile } from '../server/services/profileManager.js';
 import { writeEnvFileToDisk } from '../server/utils.js';
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-profiles-'));
@@ -38,6 +38,9 @@ beforeEach(() => {
   // Create a sample profile in launcher dir
   writeEnvFileToDisk(path.join(launcherProfilesDir, 'sample.env'), {
     SERVED_NAME: 'sample-served',
+    MODEL_FAMILY: 'qwen',
+    PROFILE_GROUP: 'qwen27b-int4',
+    MODEL_VARIANT: 'int4',
     GPU_UTIL: 0.88,
     MAX_MODEL_LEN: 256000,
   });
@@ -97,6 +100,32 @@ describe('profile manager', () => {
     });
     expect(filePath.replace(/\\/g, '/')).toContain('user/new-profile.env');
     expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it('clones a repository profile into user/ with overrides and preserves the source', async () => {
+    const sourceBefore = fs.readFileSync(path.join(launcherProfilesDir, 'sample.env'), 'utf-8');
+    const filePath = await cloneProfile('qwen27b/normal/int4/sample.env', 'qwen-tooling', {
+      ENABLE_AUTO_TOOL_CHOICE: 1,
+      TOOL_CALL_PARSER: 'qwen3_xml',
+    });
+
+    expect(filePath.replace(/\\/g, '/')).toContain('user/qwen-tooling.env');
+    const cloned = await getProfile('user/qwen-tooling.env');
+    expect(cloned.SERVED_NAME).toBe('sample-served');
+    expect(cloned.GPU_UTIL).toBe(0.88);
+    expect(cloned.MAX_MODEL_LEN).toBe(256000);
+    expect(cloned.ENABLE_AUTO_TOOL_CHOICE).toBe(1);
+    expect(cloned.TOOL_CALL_PARSER).toBe('qwen3_xml');
+    expect(fs.readFileSync(path.join(launcherProfilesDir, 'sample.env'), 'utf-8')).toBe(sourceBefore);
+  });
+
+  it('rejects invalid clone sources, overrides, and collisions', async () => {
+    await expect(cloneProfile('../outside.env', 'bad-source')).rejects.toThrow();
+    await expect(cloneProfile('qwen27b/normal/int4/sample.env', 'bad-override', {
+      GPU_UTIL: 0.1,
+    })).rejects.toThrow(/Validation failed/);
+    await cloneProfile('qwen27b/normal/int4/sample.env', 'collision');
+    await expect(cloneProfile('qwen27b/normal/int4/sample.env', 'collision')).rejects.toThrow(/already exists/i);
   });
 
   it('updates existing user profile', async () => {

@@ -7,9 +7,42 @@ import { resolveConfig } from '../config.js';
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /** Known allowed string values for enum-like fields. */
+const PROFILE_CONFIG_KEYS = new Set<string>([
+  'SERVED_NAME', 'MODEL_FAMILY', 'MODEL_VARIANT', 'PROFILE_GROUP',
+  'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN', 'COMPATIBLE_MODES',
+  'KV_CACHE_DTYPE', 'MAX_BATCHED_TOKENS', 'MAX_NUM_SEQS',
+  'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
+  'DISABLE_CUSTOM_ALL_REDUCE', 'GPU_UTIL', 'MTP_K',
+  'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
+  'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
+  'VLLM_INT8KV_FA_PREFILL', 'VLLM_INT8KV_FA_CONTINUATION_DEQUANT',
+  'VLLM_INT8KV_FA_CASCADE_DEQUANT', 'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS',
+  'ATTENTION_BACKEND', 'PREFIX_CACHING',
+  'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS', 'DRAFT_TENSOR_PARALLEL_SIZE',
+  'DRAFT_MODEL_TP_SIZE', 'SPECULATIVE_DECODE_METHOD',
+  'ENABLE_AUTO_TOOL_CHOICE', 'TOOL_CALL_PARSER', 'TOOL_CALL_PARSER_PATH', 'TOOL_CALL_LIMIT',
+  'COMPILATION_CONFIG_JSON', 'ADDITIONAL_CONFIG_JSON', 'ENABLE_PREFIX_CACHING_COMPILE',
+  'VLLM_ATTENTION_BACKEND_COMPILE', 'TORCH_COMPILE_CACHE_DIR', 'DISABLE_COMPILE_CACHE',
+  'LANGUAGE_MODEL_ONLY', 'SKIP_MM_PROFILING', 'SYSTEM_PROMPT', 'CHAT_TEMPLATE',
+  'TRUST_REMOTE_CODE', 'CUDA_VISIBLE_DEVICES', 'VLLM_HOST_IP', 'VLLM_RPC_BASE_URL',
+  'RAY_ADDRESS', 'RAY_OBJECT_STORE_MEMORY', 'VLLM_LOGGING_LEVEL', 'ENABLE_REQUEST_LOGGING',
+  'LOG_STATS', 'ENABLE_PROMPT_TOKEN_COUNTS', 'API_KEY', 'MULTI_VLM', 'VLM_INPUT_TYPE',
+  'SKIP_MODEL_INIT', 'LOAD_FORMAT', 'QUANTIZATION', 'MESSAGE_TYPE', 'MM_LIMIT_JSON',
+]);
+
 const VALID_MODEL_VARIANTS = new Set(['int4', 'fp8', 'nvfp4']);
 const VALID_KV_CACHE_DTYPES = new Set(['auto', 'int8_per_token_head', 'fp8', 'fp16']);
 const VALID_COMPATIBLE_MODES = new Set(['normal', 'mm', 'all']);
+
+function filterProfileConfig(config: Partial<ProfileConfig>): Record<string, string | number> {
+  const filtered: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (PROFILE_CONFIG_KEYS.has(key) && value !== undefined) {
+      filtered[key] = value as string | number;
+    }
+  }
+  return filtered;
+}
 
 /**
  * Validate a partial profile config. Returns an array of human-readable
@@ -243,34 +276,7 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
     TOOL_CALL_PARSER: 'hermes',
   };
 
-  // M11: Filter to known keys only — prevent arbitrary env var injection
-  const KNOWN_KEYS = new Set([
-    ...Object.keys(defaults),
-    'SERVED_NAME', // required field, not in defaults
-    'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN',
-    'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS', 'COMPILATION_CONFIG_JSON',
-    'TOOL_CALL_PARSER', 'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS',
-    'DRAFT_TENSOR_PARALLEL_SIZE', 'DRAFT_MODEL_TP_SIZE', 'SPECULATIVE_DECODE_METHOD',
-    'TOOL_CALL_PARSER_PATH', 'TOOL_CALL_LIMIT',
-    'ENABLE_PREFIX_CACHING_COMPILE', 'VLLM_ATTENTION_BACKEND_COMPILE',
-    'TORCH_COMPILE_CACHE_DIR', 'DISABLE_COMPILE_CACHE',
-    'SYSTEM_PROMPT', 'CHAT_TEMPLATE', 'TRUST_REMOTE_CODE',
-    'CUDA_VISIBLE_DEVICES', 'VLLM_HOST_IP', 'VLLM_RPC_BASE_URL',
-    'RAY_ADDRESS', 'RAY_OBJECT_STORE_MEMORY',
-    'VLLM_LOGGING_LEVEL', 'ENABLE_REQUEST_LOGGING', 'LOG_STATS',
-    'ENABLE_PROMPT_TOKEN_COUNTS', 'API_KEY',
-    'MULTI_VLM', 'VLM_INPUT_TYPE', 'SKIP_MODEL_INIT',
-    'LOAD_FORMAT', 'QUANTIZATION',
-    'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
-    'DISABLE_CUSTOM_ALL_REDUCE',
-    'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
-    'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
-    'ATTENTION_BACKEND', 'PREFIX_CACHING',
-  ]);
-  const filtered: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(config)) {
-    if (KNOWN_KEYS.has(k) && v !== undefined) filtered[k] = v as string | number;
-  }
+  const filtered = filterProfileConfig(config);
   const merged = { ...defaults, ...filtered };
 
   const validationErrors = validateProfile(merged);
@@ -292,6 +298,40 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
 }
 
 /**
+ * Clone any existing profile into a new writable user profile.
+ * The source is never modified; only allowlisted override keys are applied.
+ */
+export async function cloneProfile(
+  sourceRelPath: string,
+  targetName: string,
+  overrides: Partial<ProfileConfig> = {},
+): Promise<string> {
+  const sourcePath = resolveProfilePath(sourceRelPath);
+  const source = readEnvFile(sourcePath) as Partial<ProfileConfig>;
+  const merged = { ...source, ...filterProfileConfig(overrides) };
+  const errors = validateProfile(merged);
+  if (errors.length > 0) throw new Error(`Validation failed:\n${errors.join('\n')}`);
+
+  const userDir = getUserDir();
+  if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+  const safeName = targetName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (safeName === '' || safeName.startsWith('_')) {
+    throw new Error('Profile name must contain at least one alphanumeric character');
+  }
+  const filePath = path.join(userDir, `${safeName}.env`);
+  try {
+    const content = (await import('../utils.js')).writeEnvFile(
+      merged as Record<string, string | number | undefined>,
+    );
+    fs.writeFileSync(filePath, content, { flag: 'wx', encoding: 'utf-8' });
+  } catch (err: any) {
+    if (err.code === 'EEXIST') throw new Error(`Profile already exists: ${safeName}.env`);
+    throw err;
+  }
+  return filePath;
+}
+
+/**
  * Update an existing user profile.
  */
 export async function updateProfile(relPath: string, config: Partial<ProfileConfig>): Promise<void> {
@@ -305,36 +345,7 @@ export async function updateProfile(relPath: string, config: Partial<ProfileConf
   }
 
   // M11 (mirror): Filter to known keys only — prevent arbitrary env var injection via PUT
-  const KNOWN_KEYS = new Set([
-    'SERVED_NAME', 'MODEL_FAMILY', 'MODEL_VARIANT', 'PROFILE_GROUP',
-    'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN', 'COMPATIBLE_MODES',
-    'KV_CACHE_DTYPE', 'MAX_BATCHED_TOKENS', 'MAX_NUM_SEQS',
-    'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
-    'DISABLE_CUSTOM_ALL_REDUCE',
-    'GPU_UTIL', 'MTP_K',
-    'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
-    'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
-    'VLLM_INT8KV_FA_PREFILL', 'VLLM_INT8KV_FA_CONTINUATION_DEQUANT',
-    'VLLM_INT8KV_FA_CASCADE_DEQUANT', 'VLLM_INT8KV_FA_CASCADE_TILE_TOKENS',
-    'ATTENTION_BACKEND', 'PREFIX_CACHING',
-    'SPECULATIVE_MODEL', 'NUM_SPECULATIVE_TOKENS', 'DRAFT_TENSOR_PARALLEL_SIZE',
-    'DRAFT_MODEL_TP_SIZE', 'SPECULATIVE_DECODE_METHOD',
-    'ENABLE_AUTO_TOOL_CHOICE', 'TOOL_CALL_PARSER', 'TOOL_CALL_PARSER_PATH', 'TOOL_CALL_LIMIT',
-    'COMPILATION_CONFIG_JSON', 'ENABLE_PREFIX_CACHING_COMPILE',
-    'VLLM_ATTENTION_BACKEND_COMPILE', 'TORCH_COMPILE_CACHE_DIR', 'DISABLE_COMPILE_CACHE',
-    'LANGUAGE_MODEL_ONLY', 'SKIP_MM_PROFILING', 'SYSTEM_PROMPT', 'CHAT_TEMPLATE',
-    'TRUST_REMOTE_CODE',
-    'CUDA_VISIBLE_DEVICES', 'VLLM_HOST_IP', 'VLLM_RPC_BASE_URL',
-    'RAY_ADDRESS', 'RAY_OBJECT_STORE_MEMORY',
-    'VLLM_LOGGING_LEVEL', 'ENABLE_REQUEST_LOGGING', 'LOG_STATS',
-    'ENABLE_PROMPT_TOKEN_COUNTS', 'API_KEY',
-    'MULTI_VLM', 'VLM_INPUT_TYPE', 'SKIP_MODEL_INIT',
-    'LOAD_FORMAT', 'QUANTIZATION',
-  ]);
-  const filtered: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(config)) {
-    if (KNOWN_KEYS.has(k) && v !== undefined) filtered[k] = v as string | number;
-  }
+  const filtered = filterProfileConfig(config);
 
   const existing = readEnvFile(fullPath);
   const merged = { ...existing, ...filtered };

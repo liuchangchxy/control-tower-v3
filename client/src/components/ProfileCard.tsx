@@ -6,9 +6,10 @@ import type { ProfileSummary } from '../types';
 interface Props {
   profile: ProfileSummary;
   onDelete: () => void;
+  onClone: () => void;
 }
 
-export function ProfileCard({ profile, onDelete }: Props) {
+export function ProfileCard({ profile, onDelete, onClone }: Props) {
   const f = profile.fields;
   return (
     <Card className="hover:border-border-hover transition-colors">
@@ -36,6 +37,12 @@ export function ProfileCard({ profile, onDelete }: Props) {
       </div>
 
       <div className="flex gap-2">
+        <button
+          onClick={onClone}
+          className="text-xs text-accent hover:underline"
+        >
+          Clone
+        </button>
         {profile.writable && (
           <Link
             to={`/profiles/${encodeURIComponent(profile.name)}/edit`}

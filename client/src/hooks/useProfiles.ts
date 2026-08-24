@@ -31,6 +31,15 @@ export function useCreateProfile() {
   });
 }
 
+export function useCloneProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { source: string; name: string; overrides?: Partial<ProfileConfig> }) =>
+      api.post<{ path: string }>('/profiles/clone', vars),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+  });
+}
+
 export function useUpdateProfile() {
   const qc = useQueryClient();
   return useMutation({

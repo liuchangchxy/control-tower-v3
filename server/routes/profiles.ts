@@ -32,6 +32,19 @@ profilesRouter.get('/:path(*)', async (req, res) => {
   }
 });
 
+profilesRouter.post('/clone', async (req, res) => {
+  try {
+    const { source, name, overrides } = req.body;
+    if (!source || !name) {
+      return res.status(400).json({ ok: false, error: 'source and name required' });
+    }
+    const path = await profileMgr.cloneProfile(source, name, overrides ?? {});
+    return res.json({ ok: true, data: { path } });
+  } catch (err: any) {
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
 profilesRouter.post('/', async (req, res) => {
   try {
     const { name, config } = req.body;

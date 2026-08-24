@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useProfiles, useProfile, useDeleteProfile } from '../hooks/useProfiles';
 import { ProfileCard } from '../components/ProfileCard';
 import { ProfileDiff } from '../components/ProfileDiff';
@@ -8,6 +8,7 @@ import { Modal } from '../components/common/Modal';
 import type { ProfileConfig } from '../types';
 
 export function ProfilesPage() {
+  const navigate = useNavigate();
   const { data: profiles, isLoading } = useProfiles();
   const del = useDeleteProfile();
 
@@ -91,6 +92,7 @@ export function ProfilesPage() {
             )}
             <ProfileCard
               profile={p}
+              onClone={() => navigate(`/profiles/new?source=${encodeURIComponent(p.name)}`)}
               onDelete={() => {
                 if (confirm(`Delete ${p.name}?`)) {
                   del.mutate(p.path);

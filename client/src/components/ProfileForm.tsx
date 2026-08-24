@@ -5,7 +5,7 @@ import { Button } from './common/Button';
 import { Card } from './common/Card';
 import { Spinner } from './common/Spinner';
 import { useToast } from './common/Toast';
-import { useCreateProfile, useUpdateProfile, useValidateProfile } from '../hooks/useProfiles';
+import { useCreateProfile, useCloneProfile, useUpdateProfile, useValidateProfile } from '../hooks/useProfiles';
 import type { ProfileConfig } from '../types';
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
   initialName?: string;
   initialConfig?: Partial<ProfileConfig>;
   editPath?: string;
+  cloneSource?: string;
 }
 
 // ── Field definitions grouped by category ─────────────────────────────────────
@@ -127,6 +128,7 @@ const ADVANCED_FIELDS: FieldDef[] = [
   { key: 'ENABLE_AUTO_TOOL_CHOICE', label: 'Enable Auto Tool Choice', type: 'boolean' },
   { key: 'TOOL_CALL_PARSER', label: 'Tool Call Parser', type: 'select', options: [
     { label: 'hermes', value: 'hermes' },
+    { label: 'qwen3_xml', value: 'qwen3_xml' },
     { label: 'auto', value: 'auto' },
     { label: 'llama3_json', value: 'llama3_json' },
     { label: 'mistral', value: 'mistral' },
@@ -228,10 +230,13 @@ const DEFAULT_CONFIG: Partial<ProfileConfig> = {
   TOOL_CALL_PARSER: 'hermes',
 };
 
-export function ProfileForm({ mode, initialName = '', initialConfig, editPath }: Props) {
+export function ProfileForm({ mode, initialName = '', initialConfig, editPath, cloneSource }: Props) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [name, setName] = useState(initialName);
+  const defaultCloneName = cloneSource
+    ? cloneSource.split('/').pop()?.replace(/\.env$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_') + '-clone'
+    : '';
+  const [name, setName] = useState(initialName || defaultCloneName);
   const [config, setConfig] = useState<Partial<ProfileConfig>>(
     initialConfig ?? DEFAULT_CONFIG
   );
@@ -242,6 +247,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
   });
 
   const createMut = useCreateProfile();
+  const cloneMut = useCloneProfile();
   const updateMut = useUpdateProfile();
   const validateMut = useValidateProfile();
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
@@ -262,7 +268,11 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
         return;
       }
       try {
-        await createMut.mutateAsync({ name: trimmedName, config });
+        if (cloneSource) {
+          await cloneMut.mutateAsync({ source: cloneSource, name: trimmedName, overrides: config });
+        } else {
+          await createMut.mutateAsync({ name: trimmedName, config });
+        }
         navigate('/profiles');
       } catch (err) {
         // Error is handled by React Query error state
@@ -356,26 +366,34 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
     );
   };
 
-  const isPending = createMut.isPending || updateMut.isPending || validateMut.isPending;
+  const isPending = createMut.isPending || cloneMut.isPending || updateMut.isPending || validateMut.isPending;
 
   return (
     <Card>
       <div className="space-y-4" onChange={() => {
         if (createMut.isError) createMut.reset();
+        if (cloneMut.isError) cloneMut.reset();
         if (updateMut.isError) updateMut.reset();
       }}>
         {/* Profile name (create mode) */}
         {mode === 'create' && (
-          <div>
-            <label className="block text-sm text-text-secondary mb-1">Profile Name</label>
-            <input
-              type="text"
-              className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="my-profile"
-            />
-          </div>
+          <>
+            {cloneSource && (
+              <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-text-secondary">
+                Cloning from: <span className="font-mono text-text-primary">{cloneSource}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Profile Name</label>
+              <input
+                type="text"
+                className="w-full bg-bg-tertiary border border-border rounded px-3 py-1.5 font-mono"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="my-profile"
+              />
+            </div>
+          </>
         )}
 
         {/* Field groups */}
@@ -436,9 +454,9 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
         )}
 
         {/* Mutations error */}
-        {(createMut.error || updateMut.error) && (
+        {(createMut.error || cloneMut.error || updateMut.error) && (
           <div className="text-red-400 text-sm">
-            {((createMut.error ?? updateMut.error) as Error).message}
+            {((createMut.error ?? cloneMut.error ?? updateMut.error) as Error).message}
           </div>
         )}
 
@@ -459,7 +477,7 @@ export function ProfileForm({ mode, initialName = '', initialConfig, editPath }:
           <Button
             variant="primary"
             onClick={handleSubmit}
-            loading={createMut.isPending || updateMut.isPending}
+            loading={createMut.isPending || cloneMut.isPending || updateMut.isPending}
             disabled={mode === 'create' && !name}
           >
             {mode === 'create' ? 'Create' : 'Save'}
