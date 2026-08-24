@@ -29,21 +29,22 @@ export function ChatPage() {
   const saveChat = useSaveChat();
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
+  const loadedConversationRef = useRef<string | null>(null);
 
   const isReady = status?.status === 'ready' || (status?.status === 'unknown' && status.apiAvailable === true && status.runtimeEvidence?.modelMatches === true);
 
   useEffect(() => {
-    if (!conversationId && history[0]) {
-      setConversationId(history[0].id);
+    if (!conversationId && history[0] && loadedConversationRef.current !== history[0].id) {
+      loadedConversationRef.current = history[0].id;
       setMessages(history[0].messages);
     }
   }, [conversationId, history]);
 
   const selectConversation = (conversation: ChatConversation) => {
-    setConversationId(conversation.id);
+    loadedConversationRef.current = conversation.id;
     setMessages(conversation.messages);
   };
-  const newConversation = () => { setConversationId(null); setMessages([]); };
+  const newConversation = () => { loadedConversationRef.current = null; setConversationId(null); setMessages([]); };
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [enableThinking, setEnableThinking] = useState(true);
