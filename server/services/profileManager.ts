@@ -31,8 +31,8 @@ const PROFILE_CONFIG_KEYS = new Set<string>([
 ]);
 
 const VALID_MODEL_VARIANTS = new Set(['int4', 'fp8', 'nvfp4']);
-const VALID_KV_CACHE_DTYPES = new Set(['auto', 'int8_per_token_head', 'fp8', 'fp16']);
-const VALID_COMPATIBLE_MODES = new Set(['normal', 'mm', 'all']);
+const VALID_KV_CACHE_DTYPES = new Set(['auto', 'int8_per_token_head', 'turboquant_k8v4', 'fp8', 'fp16']);
+const VALID_COMPATIBLE_MODES = new Set(['normal', 'fast', 'mm', 'all']);
 
 function filterProfileConfig(config: Partial<ProfileConfig>): Record<string, string | number> {
   const filtered: Record<string, string | number> = {};
