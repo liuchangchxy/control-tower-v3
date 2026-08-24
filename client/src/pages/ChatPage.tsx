@@ -82,9 +82,10 @@ export function ChatPage() {
     setInput('');
     setIsStreaming(true);
 
-    const requestSentAt = Date.now();
+    const requestSentAt = performance.now();
     let firstTokenTime: number | null = null;
-    let tokenCount = 0;
+    let firstAnswerTokenTime: number | null = null;
+    let lastAnswerTokenTime: number | null = null;
     let buffer = '';
     let reasoningBuffer = '';
     const parser = createChatStreamParser();
@@ -96,6 +97,7 @@ export function ChatPage() {
         model: status?.servedName || 'vllm',
         messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: text }],
         stream: true,
+        stream_options: { include_usage: true },
       };
 
       if (enableThinking) {
@@ -133,12 +135,16 @@ export function ChatPage() {
           if (event.usage?.completion_tokens != null) completionTokens = event.usage.completion_tokens;
           const reasoning = delta.reasoning_content ?? delta.reasoning ?? '';
           if (reasoning) {
-            if (firstTokenTime === null) firstTokenTime = Date.now();
+            const now = performance.now();
+            if (firstTokenTime === null) firstTokenTime = now;
             reasoningBuffer += reasoning;
             setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, reasoning: reasoningBuffer } : m));
           }
           if (delta.content) {
-            if (firstTokenTime === null) firstTokenTime = Date.now();
+            const now = performance.now();
+            if (firstTokenTime === null) firstTokenTime = now;
+            if (firstAnswerTokenTime === null) firstAnswerTokenTime = now;
+            lastAnswerTokenTime = now;
             buffer += delta.content;
             setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: buffer } : m));
           }
@@ -153,19 +159,23 @@ export function ChatPage() {
         if (event.delta.content) buffer += event.delta.content;
       }
 
-      const ttft = firstTokenTime !== null ? firstTokenTime - requestSentAt : 0;
-      const elapsed = firstTokenTime !== null ? (Date.now() - firstTokenTime) : 0;
-      const measuredTokens = completionTokens ?? buffer.split(/\s+/).filter(Boolean).length;
-      const tokPerSec = elapsed > 0 && measuredTokens > 0 ? (measuredTokens / (elapsed / 1000)) : 0;
+      const ttft = firstTokenTime !== null ? firstTokenTime - requestSentAt : null;
+      const generationMs = firstAnswerTokenTime !== null && lastAnswerTokenTime !== null
+        ? lastAnswerTokenTime - firstAnswerTokenTime
+        : null;
+      const measuredTokens = completionTokens;
+      const tokPerSec = measuredTokens !== null && generationMs !== null && generationMs > 0
+        ? measuredTokens / (generationMs / 1000)
+        : null;
 
       setMessages(prev =>
         prev.map(m =>
           m.id === assistantMsg.id
-            ? { ...m, reasoning: reasoningBuffer || m.reasoning, content: buffer, ttftMs: ttft, tokPerSec, tokenCount: measuredTokens }
+            ? { ...m, reasoning: reasoningBuffer || m.reasoning, content: buffer, ttftMs: ttft ?? undefined, tokPerSec: tokPerSec ?? undefined, tokenCount: measuredTokens ?? undefined }
             : m
         )
       );
-      const savedMessages = [...messages, userMsg, { ...assistantMsg, reasoning: reasoningBuffer || undefined, content: buffer, ttftMs: ttft, tokPerSec, tokenCount: measuredTokens }];
+      const savedMessages = [...messages, userMsg, { ...assistantMsg, reasoning: reasoningBuffer || undefined, content: buffer, ttftMs: ttft ?? undefined, tokPerSec: tokPerSec ?? undefined, tokenCount: measuredTokens ?? undefined }];
       const conversation: ChatConversation = {
         id: conversationId ?? `chat-${Date.now()}`,
         title: text.slice(0, 80),
