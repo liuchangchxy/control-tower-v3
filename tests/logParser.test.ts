@@ -127,11 +127,12 @@ describe('logParser', () => {
       expect(progress).toBe(25);
     });
 
-    it('asymptotically approaches progressEnd for compile stage', () => {
-      // After a long time, should be close to but never reach progressEnd
-      const progress = interpolateProgress(backboneStage, 600, null); // 10 min
-      expect(progress).toBeGreaterThan(45);
-      expect(progress).toBeLessThan(50); // never reaches 50
+    it('keeps unknown compile progress indeterminate at the stage start', () => {
+      // Compile stages have no trustworthy percentage source. Keep the bar at
+      // the stage boundary instead of inventing elapsed-time progress.
+      const progress = interpolateProgress(backboneStage, 600, null);
+      expect(progress).toBe(backboneStage.progressStart);
+      expect(progress).toBeLessThan(backboneStage.progressEnd);
     });
 
     it('never returns a value below progressStart', () => {

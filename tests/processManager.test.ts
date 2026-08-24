@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { analyzeError } from '../server/services/errorAnalyzer.js';
 import { isErrorLine } from '../server/services/logParser.js';
+import { ControlPlane } from '../server/services/controlPlane.js';
 
 // Test the error analysis pipeline that processManager now uses.
 // processManager itself depends on spawn/pgrep/nvidia-smi which make it
@@ -49,9 +50,12 @@ describe('processManager error integration', () => {
   });
 
   it('restart throws when no profile loaded', async () => {
-    const mod = await import('../server/services/processManager.js');
-    // stop() clears state, so restart should throw
-    await mod.stop().catch(() => {}); // ignore errors from stop
-    await expect(mod.restart()).rejects.toThrow('No profile to restart with');
+    const restart = vi.fn(async () => {
+      throw new Error('unexpected launcher restart');
+    });
+    const plane = new ControlPlane({ launcher: { restart } as any });
+
+    await expect(plane.restart()).rejects.toThrow('No profile to restart with');
+    expect(restart).not.toHaveBeenCalled();
   });
 });
