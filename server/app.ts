@@ -70,7 +70,9 @@ function proxyToVLLM(
 export function createApp(deps: AppDependencies): express.Express {
   const app = express();
   app.use(cors({ origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/192\.168\.\d+\.\d+:\d+$/, /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/] }));
-  app.use(express.json());
+  // Claude Code requests include long tool schemas and conversation history.
+  // This is an HTTP-body limit, not the model's token context limit.
+  app.use(express.json({ limit: '32mb' }));
   app.use((req, _res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
     next();
@@ -97,7 +99,10 @@ export function createApp(deps: AppDependencies): express.Express {
 
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('Unhandled error:', err);
-    res.status(500).json({ ok: false, error: 'Internal server error' });
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({ ok: false, error: 'Request body too large', limit: '32mb' });
+    }
+    return res.status(500).json({ ok: false, error: 'Internal server error' });
   });
   return app;
 }
