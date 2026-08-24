@@ -27,7 +27,7 @@ export interface ProfileGroup {
 }
 
 function groupName(profile: ProfileSummary): string {
-  return profile.fields.PROFILE_GROUP?.trim() || profile.name.split('/')[0] || 'Ungrouped';
+  return profile.fields.PROFILE_GROUP?.trim() || (profile.name.includes('/') ? profile.name.split('/')[0] : 'Ungrouped');
 }
 
 export function groupProfiles(profiles: ProfileSummary[]): ProfileGroup[] {
