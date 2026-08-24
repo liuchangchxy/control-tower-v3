@@ -1,36 +1,45 @@
 #!/usr/bin/env bash
-# deploy.sh — build locally, deploy to debian103, restart
+# Build, test, restart, and verify the Linux-local Control Tower checkout.
 set -euo pipefail
 
-REMOTE="debian103"
-REMOTE_DIR="/home/chang/control-tower-v3"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="${HOME}/local/node/bin:${PATH}"
+cd "${ROOT}"
 
-echo "==> Building client + server locally"
-npm run build 2>&1 | tail -5
-
-echo "==> Syncing to ${REMOTE}:${REMOTE_DIR}"
-# tar pipe avoids rsync dependency (works on Windows Git Bash)
-tar --exclude='node_modules' --exclude='.git' --exclude='run-logs' \
-  -czf - ./ | ssh "${REMOTE}" "cd ${REMOTE_DIR} && tar -xzf - --strip-components=0"
-
-echo "==> Installing dependencies on remote (for runtime)"
-ssh "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && cd ${REMOTE_DIR} && npm install --production 2>&1 | tail -3"
-
-echo "==> Restarting control-tower"
-# Stop only the exact deployed Tower command; never use the vLLM PID from state.json.
-ssh "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && pids=\$(ps -eo pid=,comm=,args= | awk '\$2==\"node\" && \$0 ~ /dist\\/server\\/index\\.js/ {print \$1}'); [ -z \"\$pids\" ] || kill \$pids 2>/dev/null || true"
-sleep 2
-ssh -f "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && cd ${REMOTE_DIR} && nohup node dist/server/index.js > /tmp/ct.log 2>&1 &" || true
-sleep 3
-
-echo "==> Verifying"
-STATUS=$(ssh "${REMOTE}" "curl -fsS http://localhost:9092/api/server/status" 2>/dev/null || echo "FAILED")
-printf '%s\n' "  ${STATUS}"
-if [[ "${STATUS}" == "FAILED" ]]; then
-  echo "Control Tower did not start; remote log follows:" >&2
-  ssh "${REMOTE}" "tail -n 80 /tmp/ct.log" >&2 || true
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "Tracked source changes exist; commit or review them before building." >&2
+  git status --short >&2
   exit 1
 fi
-node -e 'const s=JSON.parse(process.argv[1]); if(!s.ok || !s.data || !s.data.status) process.exit(1)' "${STATUS}"
 
-echo "==> Done"
+npm run build
+npx tsc -p tsconfig.server.json --noEmit
+npx vitest run --config vitest.config.ts
+
+tower_pids=()
+while read -r pid comm args; do
+  [[ "${comm}" == "node" ]] || continue
+  [[ "${args}" == "node dist/server/index.js" ]] || continue
+  [[ -r "/proc/${pid}/cwd" ]] || continue
+  [[ "$(readlink -f "/proc/${pid}/cwd")" == "${ROOT}" ]] || continue
+  tower_pids+=("${pid}")
+done < <(ps -eo pid=,comm=,args=)
+
+if ((${#tower_pids[@]})); then
+  kill "${tower_pids[@]}" 2>/dev/null || true
+  sleep 2
+fi
+
+nohup node dist/server/index.js > /tmp/control-tower.log 2>&1 </dev/null &
+server_pid=$!
+sleep 3
+
+status="$(curl -fsS http://localhost:9092/api/server/status)"
+node -e 'const s=JSON.parse(process.argv[1]); if (!s.ok || !s.data || !s.data.status) process.exit(1)' "${status}"
+
+printf 'commit=%s\n' "$(git rev-parse HEAD)"
+printf 'branch=%s\n' "$(git branch --show-current)"
+printf 'server_pid=%s\n' "${server_pid}"
+printf 'status=%s\n' "${status}"
+printf 'tracked_status=\n'
+git status --short --branch
