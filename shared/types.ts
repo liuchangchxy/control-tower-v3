@@ -22,10 +22,13 @@ export interface VLLMProcess {
   profile: string | null;
   profilePath: string | null;
   status: ServerStatus;
+  lifecyclePhase?: string | null;
+  lifecycleOperationStartedAt?: number | null;
   startedAt: number | null;
   uptime: number;
   healthDetail: string;
   progress: number;
+  progressKnown?: boolean;
   logFile: string | null;
   error: string | null;
   errorDiagnosis: Diagnosis | null;
@@ -63,6 +66,11 @@ export interface VLLMProcess {
   } | null;
   /** Whether the configured model API is verified and usable for chat. */
   apiAvailable?: boolean;
+  /** Current scraping health; zero values are not used as an unavailable sentinel. */
+  metricsAvailable?: boolean;
+  metricsError?: string | null;
+  metricsSampleAgeMs?: number | null;
+  metricsSource?: string | null;
   /** Last lifecycle operation and whether launcher postcondition was confirmed. */
   lifecycleAction?: 'stop' | 'kill' | null;
   lifecycleError?: string | null;
@@ -76,6 +84,8 @@ export interface ProgressEvent {
   label: string;
   progress: number;
   stageProgress: number; // 0-100 within the current stage
+  progressKnown?: boolean;
+  elapsedMs?: number;
   status: 'active' | 'completed' | 'error';
   message?: string;
   timestamp: number;
@@ -264,6 +274,10 @@ export interface VLLMMetrics {
   prefixCacheHitRate: number;
   numPreemptions: number;
   timestamp: number;
+  metricsAvailable?: boolean;
+  metricsError?: string | null;
+  metricsSampleAgeMs?: number | null;
+  metricsSource?: string | null;
 }
 
 // ── Benchmark presets (client-side, also used by server route) ─────────────

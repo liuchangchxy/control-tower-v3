@@ -6,6 +6,7 @@ import type { VLLMMetrics } from '../types';
 // opening duplicate connections to /server/metrics/stream.
 
 type Listener = (data: VLLMMetrics | null, stale: boolean) => void;
+interface MetricsHealth { available: boolean; error: string | null; sampleAgeMs: number | null; source: string }
 
 let sharedES: EventSource | null = null;
 let sharedMetrics: VLLMMetrics | null = null;
@@ -77,6 +78,14 @@ function subscribe(fn: Listener) {
 export function useMetrics() {
   const [metrics, setMetrics] = useState<VLLMMetrics | null>(sharedMetrics);
   const [stale, setStale] = useState(sharedStale);
+  const [health, setHealth] = useState<MetricsHealth | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try { const response = await fetch('/api/server/metrics/health'); const json = await response.json(); if (!cancelled) setHealth(json.data); } catch {}
+    };
+    void poll(); const timer = setInterval(poll, 5000); return () => { cancelled = true; clearInterval(timer); };
+  }, []);
 
   useEffect(() => {
     // Sync with current value immediately
@@ -89,5 +98,5 @@ export function useMetrics() {
     });
   }, []);
 
-  return { metrics, stale };
+  return { metrics, stale, health };
 }

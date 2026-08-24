@@ -105,14 +105,20 @@ export function ServerControl() {
           disabled={isRunning || !lastReadyExperiment}
           loading={start.isPending}
           variant="secondary"
-        >Rollback</Button>
+        >Rollback to last ready experiment</Button>
       </div>
 
-      {status?.runtimeEvidence?.state === 'present' && (
-        <div className="mt-3 p-3 bg-amber-900/30 border border-amber-700 rounded text-sm text-amber-200">
-          Runtime evidence is present but launcher identity is stale. Start is blocked; use Kill only after confirming this is the configured vLLM process.
-        </div>
-      )}
+        {lastReadyExperiment && (
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center gap-2 text-sm text-text-muted"><span>Rollback target:</span><span className="font-mono">{lastReadyExperiment.profilePath}</span><span>({new Date(lastReadyExperiment.timestamp).toLocaleString()})</span></div>
+            <div className="text-xs text-text-muted">This starts the last experiment that reached ready. It does not restore chat history, GPU state, or arbitrary files.</div>
+          </div>
+        )}
+        {status?.runtimeEvidence?.state === 'present' && (
+          <div className="mt-3 p-3 bg-amber-900/30 border border-amber-700 rounded text-sm text-amber-200">
+            Runtime evidence is present but launcher identity is stale. Start is blocked; use Kill only after confirming this is the configured vLLM process.
+          </div>
+        )}
 
       {status?.error && (
         <div className="mt-3 p-3 bg-red-900/30 border border-red-800 rounded text-sm space-y-2">

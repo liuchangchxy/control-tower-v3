@@ -44,18 +44,19 @@ export function ProgressBar() {
 
   const progress = useMonotonicProgress(rawProgress, status?.status);
 
-  if (!status || status.status === 'stopped' || status.status === 'ready') return null;
+  if (!status || (status.status !== 'starting' && status.status !== 'loading')) return null;
 
   const pct = progress?.progress ?? status.progress ?? 0;
   const currentStageId = progress?.stage;
-  const isError = status.status === 'error' || progress?.status === 'error';
+  const progressKnown = progress?.progressKnown ?? currentStageId === 'weights';
+  const isError = progress?.status === 'error';
   const detail = progress?.label || status.healthDetail || (status.status === 'starting' ? 'Starting vLLM server...' : 'Loading model...');
 
   return (
     <div className="bg-bg-secondary border border-border rounded-[var(--radius-lg)] p-4">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm text-text-secondary">{detail}</div>
-        <div className="text-sm font-mono">{Math.round(pct)}%</div>
+        <div className="text-sm text-text-secondary">{detail}{progress?.elapsedMs ? ` · ${Math.floor(progress.elapsedMs / 1000)}s` : ''}</div>
+        <div className="text-sm font-mono">{progressKnown ? `${Math.round(pct)}%` : 'working…'}</div>
       </div>
       <div
         role="progressbar"
@@ -66,14 +67,14 @@ export function ProgressBar() {
         className="h-2 bg-bg-tertiary rounded-full overflow-hidden mb-4"
       >
         <div
-          className={`h-full ${isError ? 'bg-red-500' : 'bg-accent'}`}
-          style={{ width: `${pct}%`, transition: 'width 500ms ease-out' }}
+          className={`h-full ${isError ? 'bg-red-500' : progressKnown ? 'bg-accent' : 'bg-accent animate-pulse'}`}
+          style={progressKnown ? { width: `${pct}%`, transition: 'width 500ms ease-out' } : { width: '35%' }}
         />
       </div>
       <div className="space-y-2" aria-live="polite">
         {STAGES.map(stage => {
-          const isCompleted = pct >= stage.progressEnd;
-          const isActive = currentStageId === stage.id || (!currentStageId && pct >= stage.progressStart && pct < stage.progressEnd);
+          const isCompleted = progressKnown && pct >= stage.progressEnd;
+          const isActive = currentStageId === stage.id || (!currentStageId && progressKnown && pct >= stage.progressStart && pct < stage.progressEnd);
           let subPct = 0;
           if (isCompleted) {
             subPct = 100;
@@ -81,7 +82,7 @@ export function ProgressBar() {
             subPct = progress.stageProgress;
           } else if (isActive) {
             const range = stage.progressEnd - stage.progressStart;
-            subPct = range > 0 ? Math.min(100, Math.max(0, ((pct - stage.progressStart) / range) * 100)) : 0;
+            subPct = progressKnown && range > 0 ? Math.min(100, Math.max(0, ((pct - stage.progressStart) / range) * 100)) : 0;
           }
           // Clamp subPct to never decrease below what's shown for completed stages
           if (isCompleted) subPct = 100;

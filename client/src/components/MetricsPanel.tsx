@@ -16,7 +16,7 @@ function MetricRow({ label, value, unit, highlight }: { label: string; value: st
 }
 
 export function MetricsPanel() {
-  const { metrics } = useMetrics();
+  const { metrics, health } = useMetrics();
   const { data: status } = useServerStatus();
   const globalToast = useToast();
   const kvWarnedRef = useRef(false);
@@ -32,7 +32,8 @@ export function MetricsPanel() {
     }
   }, [metrics?.kvCacheWarning, metrics?.kvCacheUsagePerc]);
 
-  if (status?.status !== 'ready' || !metrics) return null;
+  if (status?.status !== 'ready') return null;
+  if (!metrics || !health?.available) return <Card title="Live Metrics"><div className="text-sm text-text-muted">{health?.error ? `Metrics unavailable: ${health.error}` : 'Waiting for a valid /metrics sample…'}</div></Card>;
 
   const kvPct = Math.round(metrics.kvCacheUsagePerc * 100);
   const kvColor = kvPct > 90 ? 'bg-red-500' : kvPct > 85 ? 'bg-yellow-500 animate-pulse' : kvPct > 75 ? 'bg-yellow-500' : 'bg-accent';
@@ -41,9 +42,9 @@ export function MetricsPanel() {
     <Card title="Live Metrics">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
         <MetricRow label="Requests" value={`${metrics.numRequestsRunning}/${metrics.numRequestsWaiting}`} unit="run/wait" />
-        <MetricRow label="Throughput" value={metrics.tokPerSec.toFixed(1)} unit="tok/s" />
-        <MetricRow label="TTFT p50" value={metrics.ttftP50 < 1 ? `${(metrics.ttftP50 * 1000).toFixed(0)}ms` : `${metrics.ttftP50.toFixed(2)}s`} />
-        <MetricRow label="Prefix Cache" value={`${(metrics.prefixCacheHitRate * 100).toFixed(1)}%`} />
+        <MetricRow label="Throughput" value={metrics.tokPerSec > 0 ? metrics.tokPerSec.toFixed(1) : 'N/A'} unit="tok/s" />
+        <MetricRow label="TTFT p50" value={metrics.ttftP50 < 1 ? `${Math.round(metrics.ttftP50 * 1000)}ms` : `${Math.round(metrics.ttftP50)}s`} />
+        <MetricRow label="Prefix Cache" value={`${Math.round(metrics.prefixCacheHitRate * 100)}%`} />
       </div>
 
       <div>
@@ -59,8 +60,8 @@ export function MetricsPanel() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-4">
         <MetricRow label="Prompt tokens" value={metrics.promptTokens.toLocaleString()} />
         <MetricRow label="Generated" value={metrics.generationTokens.toLocaleString()} />
-        <MetricRow label="TTFT p90" value={metrics.ttftP90 < 1 ? `${(metrics.ttftP90 * 1000).toFixed(0)}ms` : `${metrics.ttftP90.toFixed(2)}s`} />
-        <MetricRow label="TTFT p99" value={metrics.ttftP99 != null && metrics.ttftP99 < 1 ? `${(metrics.ttftP99 * 1000).toFixed(0)}ms` : `${(metrics.ttftP99 ?? 0).toFixed(2)}s`} />
+        <MetricRow label="TTFT p90" value={metrics.ttftP90 < 1 ? `${Math.round(metrics.ttftP90 * 1000)}ms` : `${Math.round(metrics.ttftP90)}s`} />
+        <MetricRow label="TTFT p99" value={metrics.ttftP99 != null && metrics.ttftP99 < 1 ? `${Math.round(metrics.ttftP99 * 1000)}ms` : `${Math.round(metrics.ttftP99 ?? 0)}s`} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-4">

@@ -19,13 +19,14 @@ export interface ControlPlaneDependencies {
 export class ControlPlane {
   private busy = false;
   private processState: VLLMProcess = {
-    pid: null, profile: null, profilePath: null, status: 'stopped', startedAt: null,
+    pid: null, profile: null, profilePath: null, status: 'stopped', lifecyclePhase: null, lifecycleOperationStartedAt: null, startedAt: null,
     uptime: 0, healthDetail: '', progress: 0, logFile: null, error: null,
     errorDiagnosis: null, servedName: null, port: 8000,
   };
   private handoff: LauncherHandoff | null = null;
   private logTailer: { stop: () => void } | null = null;
   private launcherPoll: ReturnType<typeof setInterval> | null = null;
+  private progressReplay: ProgressEvent | null = null;
   private lifecycleGeneration = 0;
   private pollInFlight = false;
   private lastStage: LogStage | null = null;
@@ -45,7 +46,7 @@ export class ControlPlane {
     return { ...this.processState, uptime };
   }
   getEndpoint(): string { return `http://127.0.0.1:${this.processState.port}`; }
-  onProgress(callback: (event: ProgressEvent) => void): () => void { this.emitter.on('progress', callback); return () => this.emitter.off('progress', callback); }
+  onProgress(callback: (event: ProgressEvent) => void): () => void { if (this.progressReplay) queueMicrotask(() => callback(this.progressReplay!)); this.emitter.on('progress', callback); return () => this.emitter.off('progress', callback); }
   onLogLine(callback: (line: string) => void): () => void { this.emitter.on('log', callback); return () => this.emitter.off('log', callback); }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -85,7 +86,7 @@ export class ControlPlane {
     const capabilities = next.capabilities ?? this.processState.launcherCapabilities ?? null;
     this.updateState({
       pid: orphaned ? (evidence?.pid ?? this.processState.pid) : next.pid, pgid: orphaned ? (evidence?.pgid ?? this.processState.pgid) : next.pgid, profile: canonicalProfile, profilePath: authoritativeProfilePath,
-      status: orphaned ? 'unknown' : status, startedAt: next.startedAt || this.processState.startedAt, logFile: next.logFile ?? this.processState.logFile, servedName: next.servedName ?? this.processState.servedName,
+      status: orphaned ? 'unknown' : status, lifecyclePhase: orphaned ? 'orphaned' : next.status, lifecycleOperationStartedAt: this.processState.lifecycleOperationStartedAt, startedAt: next.startedAt || this.processState.startedAt, logFile: next.logFile ?? this.processState.logFile, servedName: next.servedName ?? this.processState.servedName,
       port: next.port, error: orphaned ? (evidence?.detail || 'Orphaned vLLM runtime detected') : next.error, errorDiagnosis: next.error ? analyzeError([next.error]) : this.processState.errorDiagnosis,
       healthDetail: orphaned ? (evidence?.detail || 'orphaned runtime detected') : status === 'ready' ? 'ready' : status === 'error' ? next.error || 'launcher error' : status === 'stopped' ? 'stopped' : 'loading model',
       progress: status === 'ready' ? 100 : this.processState.progress,
@@ -120,23 +121,24 @@ export class ControlPlane {
   }
 
   private stageProgress(overall: number, stage: LogStage) { const range = stage.progressEnd - stage.progressStart; return range <= 0 ? 100 : Math.min(100, Math.max(0, Math.round(((overall - stage.progressStart) / range) * 100))); }
-  private emitProgress(stage: string, label: string, progress: number, status: ProgressEvent['status'], message?: string) { this.emitter.emit('progress', { stage, label, progress, stageProgress: stage === 'ready' ? 100 : 0, status, message, timestamp: Date.now() }); }
-  private setProgress(stage: LogStage, raw: number) { const progress = Math.max(this.processState.progress, Math.round(raw)); this.updateState({ progress, healthDetail: stage.label }); this.emitter.emit('progress', { stage: stage.id, label: stage.label, progress, stageProgress: this.stageProgress(progress, stage), status: 'active', timestamp: Date.now() }); }
+  private emitProgress(stage: string, label: string, progress: number, status: ProgressEvent['status'], message?: string, progressKnown = false) { const event = { stage, label, progress, stageProgress: progressKnown ? progress : 0, progressKnown, elapsedMs: this.stageEnteredAt ? Date.now() - this.stageEnteredAt : 0, status, message, timestamp: Date.now() }; this.progressReplay = event; this.emitter.emit('progress', event); }
+  private setProgress(stage: LogStage, raw: number) { const realPercent = extractProgressPercent(this.recentLines[this.recentLines.length - 1] ?? ''); const known = stage.id === 'weights' && realPercent != null; const progress = known ? Math.max(this.processState.progress, Math.round(raw)) : this.processState.progress; this.updateState({ progress, healthDetail: stage.label }); const event = { stage: stage.id, label: stage.label, progress, progressKnown: known, stageProgress: known ? this.stageProgress(progress, stage) : 0, elapsedMs: this.stageEnteredAt ? Date.now() - this.stageEnteredAt : 0, status: 'active' as const, timestamp: Date.now() }; this.progressReplay = event; this.emitter.emit('progress', event); }
 
   async start(profileRef: string): Promise<void> { return this.withLock(async () => {
     if (this.processState.status !== 'stopped') throw new Error(`Cannot start: status is ${this.processState.status}`);
     this.resetRunState();
     const { profilePath, profile } = this.resolveProfile(profileRef); if (!profile.SERVED_NAME) throw new Error('Profile is missing SERVED_NAME');
     const c = this.config();
+    this.updateState({ status: 'starting', lifecyclePhase: 'starting', lifecycleOperationStartedAt: Date.now(), lifecycleAction: null, lifecycleConfirmed: false, healthDetail: 'Starting vLLM…' });
     const next = await this.launcher.start({ profile: profileRef, modelDir: c.modelDir, mode: 'fast', gpuDevices: '0,1', tpSize: profile.TP_SIZE ?? 2, port: profile.PORT ?? 8000, serviceScope: 'local' });
-    this.applyHandoff(next, undefined, profilePath); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
+    this.applyHandoff(next, undefined, profilePath); this.updateState({ lifecyclePhase: next.status, lifecycleOperationStartedAt: this.processState.lifecycleOperationStartedAt }); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
   }); }
   async restart(): Promise<void> { return this.withLock(async () => {
     if (!this.processState.profile) throw new Error('No profile to restart with');
     this.resetRunState();
     const { profilePath, profile } = this.resolveProfile(this.processState.profile); const c = this.config();
     const next = await this.launcher.restart({ profile: this.processState.profile, modelDir: c.modelDir, mode: 'fast', gpuDevices: '0,1', tpSize: profile.TP_SIZE ?? 2, port: this.processState.port, serviceScope: 'local' });
-    this.applyHandoff(next, undefined, profilePath); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
+    this.applyHandoff(next, undefined, profilePath); this.updateState({ lifecyclePhase: next.status, lifecycleOperationStartedAt: this.processState.lifecycleOperationStartedAt }); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
   }); }
   private async executeLifecycle(action: 'stop' | 'kill'): Promise<void> {
     this.updateState({
@@ -144,6 +146,7 @@ export class ControlPlane {
       lifecycleAction: action,
       lifecycleError: null,
       lifecycleConfirmed: false,
+      lifecyclePhase: action,
       healthDetail: `${action} requested`,
     });
     try {
@@ -183,7 +186,7 @@ export class ControlPlane {
   async kill(): Promise<void> { return this.withLock(() => this.executeLifecycle('kill')); }
   private persist(profile: string | null, profilePath: string | null, next: LauncherHandoff) { saveState({ pid: next.pid, pgid: next.pgid, profile, profilePath, logFile: next.logFile, startedAt: next.startedAt, servedName: next.servedName, port: next.port }); }
   private async cleanup() {
-    this.stopLauncherPoll(); stopMetricsScraping(); if (this.logTailer) { this.logTailer.stop(); this.logTailer = null; } clearState(); const port = this.processState.port; this.processState = { pid: null, pgid: null, profile: null, profilePath: null, status: 'stopped', startedAt: null, uptime: 0, healthDetail: '', progress: 0, logFile: null, error: null, errorDiagnosis: null, servedName: null, port, lifecycleAction: null, lifecycleError: null, lifecycleConfirmed: true }; this.emitProgress('stopped', 'Stopped', 0, 'completed');
+    this.stopLauncherPoll(); stopMetricsScraping(); if (this.logTailer) { this.logTailer.stop(); this.logTailer = null; } clearState(); const port = this.processState.port; this.progressReplay = null; this.processState = { pid: null, pgid: null, profile: null, profilePath: null, status: 'stopped', lifecyclePhase: null, lifecycleOperationStartedAt: null, startedAt: null, uptime: 0, healthDetail: '', progress: 0, progressKnown: false, logFile: null, error: null, errorDiagnosis: null, servedName: null, port, lifecycleAction: null, lifecycleError: null, lifecycleConfirmed: true }; this.emitProgress('stopped', 'Stopped', 0, 'completed');
   }
   async recoverFromState(): Promise<void> {
     const persisted = loadState();

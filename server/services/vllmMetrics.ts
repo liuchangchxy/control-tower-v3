@@ -121,7 +121,9 @@ export function parsePrometheusMetrics(raw: string): Partial<VLLMMetrics> {
       case 'vllm:num_requests_waiting': result.numRequestsWaiting = num; break;
       case 'vllm:kv_cache_usage_perc': result.kvCacheUsagePerc = num; break;
       case 'vllm:prompt_tokens': result.promptTokens = num; break;
+      case 'vllm:prompt_tokens_total': result.promptTokens = num; break;
       case 'vllm:generation_tokens': result.generationTokens = num; break;
+      case 'vllm:generation_tokens_total': result.generationTokens = num; break;
       case 'vllm:num_preemptions': result.numPreemptions = num; break;
       case "vllm:prefix_cache_hit_rate": result.prefixCacheHitRate = num; break;
     }
@@ -180,6 +182,9 @@ function computeTokPerSec(parsed: Partial<VLLMMetrics>, now: number, generation 
 const METRICS_HISTORY_SIZE = 150; // 5 min at 2s intervals
 let metricsHistory: VLLMMetrics[] = [];
 let scrapingInterval: ReturnType<typeof setInterval> | null = null;
+let metricsError: string | null = null;
+let lastMetricsSampleAt: number | null = null;
+
 const metricsEvents = new EventEmitter();
 
 export function onMetricsSample(callback: (metric: VLLMMetrics) => void): () => void {
@@ -216,11 +221,18 @@ export function startMetricsScraping(port: number = 8000, generation = ''): void
         prefixCacheHitRate: parsed.prefixCacheHitRate ?? 0,
         numPreemptions: parsed.numPreemptions ?? 0,
         timestamp: now,
+        metricsAvailable: true,
+        metricsError: null,
+        metricsSampleAgeMs: 0,
+        metricsSource: `http://127.0.0.1:${activePort}/metrics`,
       };
       metricsHistory.push(metric);
+      metricsError = null;
+      lastMetricsSampleAt = now;
       if (metricsHistory.length > METRICS_HISTORY_SIZE) metricsHistory.shift();
       metricsEvents.emit('sample', metric);
-    } catch (_err) {
+    } catch (err) {
+      metricsError = err instanceof Error ? err.message : String(err);
       // vLLM not ready yet, skip
     }
   }, 2000);
@@ -236,6 +248,9 @@ export function stopMetricsScraping(): void {
   lastTimestamp = 0;
 }
 
+export function getMetricsHealth(): { available: boolean; error: string | null; sampleAgeMs: number | null; source: string } {
+  return { available: lastMetricsSampleAt !== null, error: metricsError, sampleAgeMs: lastMetricsSampleAt === null ? null : Date.now() - lastMetricsSampleAt, source: `http://127.0.0.1:${activePort}/metrics` };
+}
 export function getLatestMetrics(): VLLMMetrics | null {
   return metricsHistory.length > 0 ? metricsHistory[metricsHistory.length - 1] : null;
 }

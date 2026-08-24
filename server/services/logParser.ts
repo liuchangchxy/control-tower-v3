@@ -84,19 +84,9 @@ export function findLatestStage(lines: string[]): LogStage | null {
  * vLLM uses tqdm for weights only. No framework provides a unified startup bar.
  */
 export function interpolateProgress(stage: LogStage, secondsInStage: number, realPercent?: number | null): number {
-  // Weights stage: use real tqdm percentage
-  if (realPercent != null && stage.id === 'weights') {
+  if (stage.id === 'weights' && realPercent != null) {
     const range = stage.progressEnd - stage.progressStart;
     return stage.progressStart + (realPercent / 100) * range;
   }
-
-  // Guard: if stageEnteredAt was not set (t=0 or negative), return start
-  if (secondsInStage <= 0) return stage.progressStart;
-
-  // Asymptotic curve: never reaches progressEnd, keeps moving
-  const range = stage.progressEnd - stage.progressStart;
-  const halfLife = range * 4; // seconds to fill 50% of range
-  const decay = Math.log(2) / halfLife;
-  const fillRatio = 1 - 0.9 * Math.exp(-secondsInStage * decay);
-  return stage.progressStart + range * fillRatio;
+  return stage.progressStart;
 }

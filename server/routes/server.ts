@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as pm from '../services/processManager.js';
-import { getLatestMetrics, getMetricsHistory, onMetricsSample } from '../services/vllmMetrics.js';
+import { getLatestMetrics, getMetricsHistory, getMetricsHealth, onMetricsSample } from '../services/vllmMetrics.js';
 import type { ApiResponse } from '../types.js';
 
 export const serverRouter = Router();
@@ -89,6 +89,12 @@ serverRouter.get('/metrics/history', (_req, res) => {
   const history = getMetricsHistory();
   res.json({ ok: true, data: history });
 });
+
+serverRouter.get('/metrics/health', (_req, res) => {
+  res.json({ ok: true, data: getMetricsHealth() });
+});
+
+
 
 // ── Metrics SSE stream ──────────────────────────────────────────────────────
 

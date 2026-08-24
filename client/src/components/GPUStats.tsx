@@ -5,7 +5,7 @@ import { useMetrics } from '../hooks/useMetrics';
 import { useSystem } from '../hooks/useSystem';
 
 function formatBytes(mib: number): string {
-  return `${(mib / 1024).toFixed(1)} GB`;
+  return `${Math.round(mib / 1024)} GB`;
 }
 
 function ThrottleTag({ reason }: { reason: string }) {
@@ -29,7 +29,7 @@ export function GPUStats() {
             <div>
               <div className="flex justify-between items-baseline mb-1">
                 <div className="text-text-muted">CPU Usage</div>
-                <div className="font-mono">{system.cpuUsage.toFixed(1)}%</div>
+                <div className="font-mono">{Math.round(system.cpuUsage)}%</div>
               </div>
               <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
                 <div
@@ -93,15 +93,15 @@ export function GPUStats() {
                 </div>
                 <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Power</div>
-                  <div className="font-mono">{gpu.powerDraw.toFixed(0)}W / {gpu.powerLimit.toFixed(0)}W</div>
+                  <div className="font-mono">{Math.round(gpu.powerDraw)}W / {Math.round(gpu.powerLimit)}W</div>
                 </div>
                 <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">SM Clock</div>
-                  <div className="font-mono">{gpu.smClock.toFixed(0)} MHz</div>
+                  <div className="font-mono">{Math.round(gpu.smClock)} MHz</div>
                 </div>
                 <div className="flex justify-between items-baseline">
                   <div className="text-text-muted text-xs">Utilization</div>
-                  <div className="font-mono">{gpu.utilization}%</div>
+                  <div className="font-mono">{Math.round(gpu.utilization)}%</div>
                 </div>
               </div>
 
