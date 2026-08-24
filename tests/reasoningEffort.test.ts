@@ -9,6 +9,12 @@ describe('reasoning effort compatibility', () => {
     });
   });
 
+  it('maps Anthropic output_config high to vLLM xhigh', () => {
+    expect(normalizeReasoningEffort({ output_config: { effort: 'high', format: { type: 'json_schema' } } })).toEqual({
+      output_config: { effort: 'xhigh', format: { type: 'json_schema' } },
+    });
+  });
+
   it('preserves supported values and non-object bodies', () => {
     expect(normalizeReasoningEffort({ reasoning_effort: 'low' })).toEqual({ reasoning_effort: 'low' });
     expect(normalizeReasoningEffort({ reasoning_effort: 'medium' })).toEqual({ reasoning_effort: 'medium' });

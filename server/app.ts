@@ -23,8 +23,21 @@ export interface AppDependencies extends RuntimeEndpointResolver {
 export function normalizeReasoningEffort(body: unknown): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
   const request = body as Record<string, unknown>;
-  if (request.reasoning_effort !== 'high') return body;
-  return { ...request, reasoning_effort: 'xhigh' };
+  const normalized: Record<string, unknown> = { ...request };
+
+  if (request.reasoning_effort === 'high') {
+    normalized.reasoning_effort = 'xhigh';
+  }
+
+  const outputConfig = request.output_config;
+  if (outputConfig && typeof outputConfig === 'object' && !Array.isArray(outputConfig)) {
+    const config = outputConfig as Record<string, unknown>;
+    if (config.effort === 'high') {
+      normalized.output_config = { ...config, effort: 'xhigh' };
+    }
+  }
+
+  return normalized;
 }
 
 function proxyToVLLM(
