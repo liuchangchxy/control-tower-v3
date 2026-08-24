@@ -56,6 +56,46 @@ describe('ControlPlane launcher boundary', () => {
     expect(plane.getStatus().status).toBe('stopped');
   });
 
+  it('keeps lifecycle identity when kill fails so the operation can be retried', async () => {
+    const launcher = {
+      start: async () => handoff('ready'),
+      status: async () => handoff('ready'),
+      stop: async () => handoff('stopped', null),
+      kill: async () => { throw new Error('launcher kill failed'); },
+      restart: async () => handoff('ready'),
+    } as any;
+    const plane = new ControlPlane({ launcher });
+    await plane.start('user/fake.env');
+
+    await expect(plane.kill()).rejects.toThrow('launcher kill failed');
+    expect(plane.getStatus()).toMatchObject({
+      status: 'unknown',
+      pid: 4242,
+      lifecycleAction: 'kill',
+      lifecycleConfirmed: false,
+    });
+  });
+
+  it('cleans up only once after an authoritative stopped handoff', async () => {
+    const launcher = {
+      start: async () => handoff('ready'),
+      status: async () => handoff('stopped', null),
+      stop: async () => handoff('stopped', null),
+      kill: async () => handoff('stopped', null),
+      restart: async () => handoff('ready'),
+    } as any;
+    const plane = new ControlPlane({ launcher });
+    await plane.start('user/fake.env');
+    await plane.kill();
+
+    expect(plane.getStatus()).toMatchObject({
+      status: 'stopped',
+      pid: null,
+      lifecycleAction: null,
+      lifecycleConfirmed: true,
+    });
+  });
+
   it('rejects concurrent lifecycle operations', async () => {
     let release!: () => void;
     const launcher = { start: () => new Promise(resolve => { release = () => resolve(handoff('ready')); }), status: async () => handoff('ready'), stop: async () => handoff('stopped', null), kill: async () => handoff('stopped', null), restart: async () => handoff('ready') } as any;

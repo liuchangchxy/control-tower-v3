@@ -15,6 +15,9 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'error' | 'neutral' | 
   ready: 'success',
   loading: 'info',
   starting: 'info',
+  stopping: 'warning',
+  killing: 'warning',
+  unknown: 'error',
   error: 'error',
   stopped: 'neutral',
 };
@@ -56,9 +59,9 @@ export function ServerControl() {
     prevStatusRef.current = curr;
   }, [status?.status, status?.error, status?.servedName]);
 
-  const isRunning = status?.status === 'ready' || status?.status === 'loading' || status?.status === 'starting';
-  // Kill is available when running OR when there might be residual processes (error/stopped with a PID)
-  const canKill = isRunning || (status?.status === 'error' && status?.pid != null) || (status?.status === 'stopped' && status?.pid != null);
+  const isRunning = status?.status === 'ready' || status?.status === 'loading' || status?.status === 'starting' || status?.status === 'stopping' || status?.status === 'killing' || status?.status === 'unknown';
+  // Keep kill available while lifecycle completion is unconfirmed so a failed attempt is recoverable.
+  const canKill = isRunning || status?.pid != null;
 
   const lastReadyExperiment = experiments
     ?.filter(e => e.status === 'ready')
@@ -85,8 +88,8 @@ export function ServerControl() {
       <div className="flex gap-2 flex-wrap">
         <Button onClick={() => setShowStartModal(true)} disabled={isRunning} variant="primary">Start</Button>
         <Button onClick={() => restart.mutate()} disabled={!isRunning} loading={restart.isPending} variant="secondary">Restart</Button>
-        <Button onClick={() => stop.mutate()} disabled={!isRunning} loading={stop.isPending} variant="secondary">Stop</Button>
-        <Button onClick={() => kill.mutate()} disabled={!canKill} loading={kill.isPending} variant="danger">Kill</Button>
+        <Button onClick={() => stop.mutate()} disabled={!isRunning || status?.status === 'stopping' || status?.status === 'killing'} loading={stop.isPending} variant="secondary">Stop</Button>
+        <Button onClick={() => kill.mutate()} disabled={!canKill || kill.isPending} loading={kill.isPending} variant="danger">Kill</Button>
         <Button
           onClick={async () => {
             if (!lastReadyExperiment) return;

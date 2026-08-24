@@ -4,7 +4,7 @@
 
 // ── Server state ────────────────────────────────────────────────────────────
 
-export type ServerStatus = 'stopped' | 'starting' | 'loading' | 'ready' | 'error';
+export type ServerStatus = 'stopped' | 'starting' | 'loading' | 'ready' | 'stopping' | 'killing' | 'unknown' | 'error';
 
 export interface Diagnosis {
   errorType: string;
@@ -18,6 +18,7 @@ export interface Diagnosis {
 
 export interface VLLMProcess {
   pid: number | null;
+  pgid?: number | null;
   profile: string | null;
   profilePath: string | null;
   status: ServerStatus;
@@ -49,6 +50,10 @@ export interface VLLMProcess {
     source: 'launcher' | 'log' | null;
     detail: string | null;
   } | null;
+  /** Last lifecycle operation and whether launcher postcondition was confirmed. */
+  lifecycleAction?: 'stop' | 'kill' | null;
+  lifecycleError?: string | null;
+  lifecycleConfirmed?: boolean;
 }
 
 // ── Progress events (SSE) ───────────────────────────────────────────────────

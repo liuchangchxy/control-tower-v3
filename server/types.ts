@@ -5,6 +5,7 @@ export type { ServerStatus, Diagnosis, VLLMProcess, ProgressEvent, GPUInfo, Syst
 
 export interface PersistedState {
   pid: number | null;
+  pgid?: number | null;
   profile: string | null;
   profilePath: string | null;
   logFile: string | null;

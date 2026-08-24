@@ -78,10 +78,10 @@ export class ControlPlane {
     const backend = next.backend ?? this.processState.backend ?? null;
     const capabilities = next.capabilities ?? this.processState.launcherCapabilities ?? null;
     this.updateState({
-      pid: next.pid, profile: canonicalProfile, profilePath: authoritativeProfilePath,
+      pid: next.pid, pgid: next.pgid, profile: canonicalProfile, profilePath: authoritativeProfilePath,
       status, startedAt: next.startedAt || this.processState.startedAt, logFile: next.logFile, servedName: next.servedName,
       port: next.port, error: next.error, errorDiagnosis: next.error ? analyzeError([next.error]) : null,
-      healthDetail: status === 'ready' ? 'ready' : status === 'error' ? next.error || 'launcher error' : 'loading model',
+      healthDetail: status === 'ready' ? 'ready' : status === 'error' ? next.error || 'launcher error' : status === 'stopped' ? 'stopped' : 'loading model',
       progress: status === 'ready' ? 100 : this.processState.progress,
       launcherRevision: next.launcherRevision ?? next.capabilities?.launcherRevision ?? this.processState.launcherRevision ?? null,
       launcherCapabilities: capabilities,
@@ -89,10 +89,9 @@ export class ControlPlane {
     });
     if (status === 'ready') startMetricsScraping(next.port, next.generation ?? ''); else stopMetricsScraping();
     if (next.logFile && next.logFile !== previousLogFile) this.startLogTailer(next.logFile);
-    if (status === 'stopped' && this.launcherPoll) void this.cleanup();
   }
   private async pollLauncher() {
-    if (this.pollInFlight) return;
+    if (this.pollInFlight || this.processState.lifecycleAction) return;
     const generation = this.lifecycleGeneration;
     this.pollInFlight = true;
     try {
@@ -129,10 +128,51 @@ export class ControlPlane {
     const next = await this.launcher.restart({ profile: this.processState.profile, modelDir: c.modelDir, mode: 'fast', gpuDevices: '0,1', tpSize: profile.TP_SIZE ?? 2, port: this.processState.port, serviceScope: 'local' });
     this.applyHandoff(next, undefined, profilePath); this.persist(next.profile, this.resolveProfile(next.profile).profilePath, next); this.startLauncherPoll();
   }); }
-  async stop(): Promise<void> { return this.withLock(async () => { this.applyHandoff(await this.launcher.stop()); await this.cleanup(); }); }
-  async kill(): Promise<void> { return this.withLock(async () => { this.applyHandoff(await this.launcher.kill()); await this.cleanup(); }); }
-  private persist(profile: string | null, profilePath: string | null, next: LauncherHandoff) { saveState({ pid: next.pid, profile, profilePath, logFile: next.logFile, startedAt: next.startedAt, servedName: next.servedName, port: next.port }); }
-  private async cleanup() { this.stopLauncherPoll(); stopMetricsScraping(); if (this.logTailer) { this.logTailer.stop(); this.logTailer = null; } clearState(); const port = this.processState.port; this.processState = { pid: null, profile: null, profilePath: null, status: 'stopped', startedAt: null, uptime: 0, healthDetail: '', progress: 0, logFile: null, error: null, errorDiagnosis: null, servedName: null, port }; this.emitProgress('stopped', 'Stopped', 0, 'completed'); }
+  private async executeLifecycle(action: 'stop' | 'kill'): Promise<void> {
+    this.updateState({
+      status: action === 'kill' ? 'killing' : 'stopping',
+      lifecycleAction: action,
+      lifecycleError: null,
+      lifecycleConfirmed: false,
+      healthDetail: `${action} requested`,
+    });
+    try {
+      const next = action === 'kill' ? await this.launcher.kill() : await this.launcher.stop();
+      this.applyHandoff(next);
+      if (next.status !== 'stopped' || next.pid !== null) {
+        const error = next.error || `Launcher reported ${next.status} after ${action}; process exit is not confirmed`;
+        this.updateState({
+          status: 'unknown',
+          lifecycleError: error,
+          lifecycleConfirmed: false,
+          error,
+          healthDetail: 'launcher stopped state not confirmed',
+        });
+        throw new Error(error);
+      }
+      this.updateState({ lifecycleConfirmed: true });
+      await this.cleanup();
+    } catch (err) {
+      if (this.processState.lifecycleAction === action && !this.processState.lifecycleConfirmed) {
+        const error = err instanceof Error ? err.message : String(err);
+        this.updateState({
+          status: 'unknown',
+          lifecycleError: error,
+          lifecycleConfirmed: false,
+          error,
+          healthDetail: `${action} failed; process identity retained`,
+        });
+      }
+      throw err;
+    }
+  }
+
+  async stop(): Promise<void> { return this.withLock(() => this.executeLifecycle('stop')); }
+  async kill(): Promise<void> { return this.withLock(() => this.executeLifecycle('kill')); }
+  private persist(profile: string | null, profilePath: string | null, next: LauncherHandoff) { saveState({ pid: next.pid, pgid: next.pgid, profile, profilePath, logFile: next.logFile, startedAt: next.startedAt, servedName: next.servedName, port: next.port }); }
+  private async cleanup() {
+    this.stopLauncherPoll(); stopMetricsScraping(); if (this.logTailer) { this.logTailer.stop(); this.logTailer = null; } clearState(); const port = this.processState.port; this.processState = { pid: null, pgid: null, profile: null, profilePath: null, status: 'stopped', startedAt: null, uptime: 0, healthDetail: '', progress: 0, logFile: null, error: null, errorDiagnosis: null, servedName: null, port, lifecycleAction: null, lifecycleError: null, lifecycleConfirmed: true }; this.emitProgress('stopped', 'Stopped', 0, 'completed');
+  }
   async recoverFromState(): Promise<void> {
     const persisted = loadState();
     try {
@@ -149,6 +189,7 @@ export class ControlPlane {
       if (persisted?.profile) {
         this.updateState({
           pid: persisted.pid,
+          pgid: persisted.pgid,
           profile: persisted.profile,
           profilePath: persisted.profilePath,
           startedAt: persisted.startedAt,

@@ -14,13 +14,15 @@ function parsePersistedState(value: unknown): PersistedState | null {
   if (!value || typeof value !== 'object') return null;
   const parsed = value as Partial<PersistedState>;
   const validPid = parsed.pid === null || (typeof parsed.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 1);
+  const validPgid = parsed.pgid === null || parsed.pgid === undefined || (typeof parsed.pgid === 'number' && Number.isInteger(parsed.pgid) && parsed.pgid > 1);
   const validPort = typeof parsed.port === 'number' && Number.isInteger(parsed.port) && parsed.port >= 1 && parsed.port <= 65535;
   const validStartedAt = parsed.startedAt === null || (typeof parsed.startedAt === 'number' && Number.isFinite(parsed.startedAt) && parsed.startedAt >= 0);
-  if (!validPid || !validPort || !validStartedAt) return null;
+  if (!validPid || !validPgid || !validPort || !validStartedAt) return null;
   const strings = [parsed.profile, parsed.profilePath, parsed.logFile, parsed.servedName];
   if (strings.some(value => value !== null && value !== undefined && typeof value !== 'string')) return null;
   return {
     pid: parsed.pid ?? null,
+    pgid: parsed.pgid ?? null,
     profile: parsed.profile ?? null,
     profilePath: parsed.profilePath ?? null,
     logFile: parsed.logFile ?? null,
