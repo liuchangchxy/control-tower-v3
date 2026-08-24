@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { getGPUSnapshot, getSystemSnapshot, startGPUStream } from '../services/gpuMonitor.js';
+import { getGPUSnapshot, getSystemSnapshot } from '../services/gpuMonitor.js';
+import { gpuEventHub } from '../services/gpuEventHub.js';
 
 export const gpuRouter = Router();
 
@@ -27,7 +28,7 @@ gpuRouter.get('/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const stop = startGPUStream(data => {
+  const stop = gpuEventHub.subscribe(data => {
     try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { stop(); }
   });
 

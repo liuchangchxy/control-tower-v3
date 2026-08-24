@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ProfileConfig, ProfileSummary } from '../types.js';
 import { readEnvFile, writeEnvFileToDisk } from '../utils.js';
+import { resolveConfig } from '../config.js';
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /** Known allowed string values for enum-like fields. */
-const VALID_MODEL_VARIANTS = new Set(['int4', 'fp8']);
+const VALID_MODEL_VARIANTS = new Set(['int4', 'fp8', 'nvfp4']);
 const VALID_KV_CACHE_DTYPES = new Set(['auto', 'int8_per_token_head', 'fp8', 'fp16']);
 const VALID_COMPATIBLE_MODES = new Set(['normal', 'mm', 'all']);
 
@@ -178,15 +179,7 @@ function getUserDir(): string {
 }
 
 function getLauncherDir(): string {
-  // Lazy-read CONTROL_TOWER_HOME to avoid ESM module-level caching issues
-  const home = process.env.CONTROL_TOWER_HOME ?? process.cwd();
-  const configPath = path.join(home, 'config.json');
-  if (!fs.existsSync(configPath)) {
-    console.error(`config.json not found at ${configPath}`);
-    throw new Error('Server configuration not found'); // L7: don't leak path
-  }
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as { launcherDir: string };
-  return config.launcherDir;
+  return resolveConfig(undefined, { allowIncomplete: true }).launcherDir;
 }
 
 function resolveProfilePath(relPath: string): string {
@@ -269,6 +262,7 @@ export async function createProfile(name: string, config: Partial<ProfileConfig>
     'MULTI_VLM', 'VLM_INPUT_TYPE', 'SKIP_MODEL_INIT',
     'LOAD_FORMAT', 'QUANTIZATION',
     'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
+    'DISABLE_CUSTOM_ALL_REDUCE',
     'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
     'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',
     'ATTENTION_BACKEND', 'PREFIX_CACHING',
@@ -316,6 +310,7 @@ export async function updateProfile(relPath: string, config: Partial<ProfileConf
     'MODEL_PATH', 'TP_SIZE', 'PORT', 'MAX_MODEL_LEN', 'COMPATIBLE_MODES',
     'KV_CACHE_DTYPE', 'MAX_BATCHED_TOKENS', 'MAX_NUM_SEQS',
     'GPU_MEMORY_UTILIZATION', 'CPU_OFFLOAD_GB', 'MAX_SWA_LEN', 'BLOCK_SIZE',
+    'DISABLE_CUSTOM_ALL_REDUCE',
     'GPU_UTIL', 'MTP_K',
     'MAX_SCHEDULING_BATCH_TOKENS', 'SCHEDULER_POLICY', 'PREEMPTION_MODE',
     'SWAP_SPACE_GB', 'SWAP_SPACE_CPU', 'PRIORITY_FAIROFF_ENABLED', 'PRIORITY_SCALEDOWN_ENABLED',

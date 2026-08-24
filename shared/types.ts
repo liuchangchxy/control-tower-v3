@@ -30,6 +30,25 @@ export interface VLLMProcess {
   errorDiagnosis: Diagnosis | null;
   servedName: string | null;
   port: number;
+  /** Evidence reported by the canonical launcher, when supported. */
+  launcherRevision?: string | null;
+  launcherCapabilities?: {
+    protocolVersion: number;
+    launcherRevision?: string;
+    profileRef?: string;
+    backends?: {
+      flashqlaLegacy?: boolean;
+      flashinfer?: boolean;
+      turboquant?: boolean;
+      mtp?: boolean;
+    };
+  } | null;
+  backend?: {
+    selected: string | null;
+    active: boolean | null;
+    source: 'launcher' | 'log' | null;
+    detail: string | null;
+  } | null;
 }
 
 // ── Progress events (SSE) ───────────────────────────────────────────────────
@@ -103,6 +122,7 @@ export interface ProfileConfig {
 
   // Optional — memory
   GPU_MEMORY_UTILIZATION?: number;
+  DISABLE_CUSTOM_ALL_REDUCE?: number;
   CPU_OFFLOAD_GB?: number;
   MAX_SWA_LEN?: number;
   BLOCK_SIZE?: number;
@@ -165,6 +185,10 @@ export interface ProfileConfig {
   SKIP_MODEL_INIT?: number;
   LOAD_FORMAT?: string;
   QUANTIZATION?: string;
+
+  // Optional — multimodal
+  MESSAGE_TYPE?: string;      // "text-only" | "text+image"
+  MM_LIMIT_JSON?: string;     // e.g. '{"image":1,"video":0,"audio":0}'
 }
 
 export interface ProfileSummary {

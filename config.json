@@ -1,7 +1,8 @@
 {
   "port": 9092,
-  "launcherDir": "/home/chang/vLLM-2080Ti-Definitive",
-  "modelDir": "/home/chang/models/Qwen3.8-27B-GPTQ-Int4",
+  "launcherDir": "/home/chang/vLLM-2080Ti-Definitive-0.2.1-pre2",
+  "modelDir": "/mnt/nas-nfs/linux挂载文件夹/models/Qwen3.8-27B-FP8",
+  "cudaHome": "/usr/local/cuda-13.3",
   "logDir": "run-logs",
   "stateFile": "state.json"
 }

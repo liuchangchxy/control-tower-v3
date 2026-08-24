@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as pm from '../services/processManager.js';
-import { getLatestMetrics, getMetricsHistory } from '../services/vllmMetrics.js';
+import { getLatestMetrics, getMetricsHistory, onMetricsSample } from '../services/vllmMetrics.js';
 import type { ApiResponse } from '../types.js';
 
 export const serverRouter = Router();
@@ -98,20 +98,19 @@ serverRouter.get('/metrics/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const interval = setInterval(() => {
-    try {
-      const latest = getLatestMetrics();
-      if (latest) {
-        res.write(`data: ${JSON.stringify(latest)}\n\n`);
-      }
-    } catch {
-      clearInterval(interval);
-    }
-  }, 2000);
-
-  res.on('error', () => clearInterval(interval));
-
-  req.on('close', () => {
-    clearInterval(interval);
+  let cleaned = false;
+  const unsubscribe = onMetricsSample(metric => {
+    if (cleaned) return;
+    try { res.write(`data: ${JSON.stringify(metric)}\n\n`); } catch { cleanup(); }
   });
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch { cleanup(); }
+  }, 15000);
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+  req.on('close', cleanup);
 });

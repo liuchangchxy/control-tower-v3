@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { type VLLMMetrics } from '../types.js';
 
 // ── Prometheus histogram parser ──────────────────────────────────────────────
@@ -156,9 +157,12 @@ export function parsePrometheusMetrics(raw: string): Partial<VLLMMetrics> {
 let lastGenTokens = 0;
 let lastTimestamp = 0;
 
-function computeTokPerSec(parsed: Partial<VLLMMetrics>, now: number): number {
+let lastGeneration = '';
+
+function computeTokPerSec(parsed: Partial<VLLMMetrics>, now: number, generation = ''): number {
   const genTokens = parsed.generationTokens ?? 0;
-  if (lastTimestamp === 0) {
+  if (generation !== lastGeneration || lastTimestamp === 0) {
+    lastGeneration = generation;
     lastGenTokens = genTokens;
     lastTimestamp = now;
     return 0;
@@ -176,12 +180,23 @@ function computeTokPerSec(parsed: Partial<VLLMMetrics>, now: number): number {
 const METRICS_HISTORY_SIZE = 150; // 5 min at 2s intervals
 let metricsHistory: VLLMMetrics[] = [];
 let scrapingInterval: ReturnType<typeof setInterval> | null = null;
+const metricsEvents = new EventEmitter();
 
-export function startMetricsScraping(port: number = 8000): void {
-  if (scrapingInterval) stopMetricsScraping();  // Restart with new port if already running
+export function onMetricsSample(callback: (metric: VLLMMetrics) => void): () => void {
+  metricsEvents.on('sample', callback);
+  return () => metricsEvents.off('sample', callback);
+}
+
+let activePort = 8000;
+let activeGeneration = '';
+
+export function startMetricsScraping(port: number = 8000, generation = ''): void {
+  activePort = port;
+  activeGeneration = generation;
+  if (scrapingInterval) stopMetricsScraping();
   scrapingInterval = setInterval(async () => {
     try {
-      const res = await fetch(`http://localhost:${port}/metrics`);
+      const res = await fetch(`http://localhost:${activePort}/metrics`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`); // M9: check status before parsing
       const raw = await res.text();
       const parsed = parsePrometheusMetrics(raw);
@@ -194,7 +209,7 @@ export function startMetricsScraping(port: number = 8000): void {
         kvCacheWarning: kvCacheUsagePerc > 0.85,
         promptTokens: parsed.promptTokens ?? 0,
         generationTokens: parsed.generationTokens ?? 0,
-        tokPerSec: computeTokPerSec(parsed, now),
+        tokPerSec: computeTokPerSec(parsed, now, activeGeneration),
         ttftP50: parsed.ttftP50 ?? 0,
         ttftP90: parsed.ttftP90 ?? 0,
         ttftP99: parsed.ttftP99 ?? 0,
@@ -204,6 +219,7 @@ export function startMetricsScraping(port: number = 8000): void {
       };
       metricsHistory.push(metric);
       if (metricsHistory.length > METRICS_HISTORY_SIZE) metricsHistory.shift();
+      metricsEvents.emit('sample', metric);
     } catch (_err) {
       // vLLM not ready yet, skip
     }

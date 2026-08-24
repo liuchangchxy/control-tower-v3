@@ -17,13 +17,20 @@ echo "==> Installing dependencies on remote (for runtime)"
 ssh "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && cd ${REMOTE_DIR} && npm install --production 2>&1 | tail -3"
 
 echo "==> Restarting control-tower"
-ssh "${REMOTE}" "ps aux | grep 'node dist/server' | grep -v grep | awk '{print \$2}' | xargs -r kill 2>/dev/null; echo killed"
+# Stop only the exact deployed Tower command; never use the vLLM PID from state.json.
+ssh "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && pids=\$(ps -eo pid=,comm=,args= | awk '\$2==\"node\" && \$0 ~ /dist\\/server\\/index\\.js/ {print \$1}'); [ -z \"\$pids\" ] || kill \$pids 2>/dev/null || true"
 sleep 2
 ssh -f "${REMOTE}" "export PATH=\$HOME/local/node/bin:\$PATH && cd ${REMOTE_DIR} && nohup node dist/server/index.js > /tmp/ct.log 2>&1 &" || true
 sleep 3
 
 echo "==> Verifying"
-STATUS=$(ssh "${REMOTE}" "curl -s http://localhost:9092/api/server/status 2>/dev/null | head -c 50" || echo "FAILED")
-echo "  ${STATUS}"
+STATUS=$(ssh "${REMOTE}" "curl -fsS http://localhost:9092/api/server/status" 2>/dev/null || echo "FAILED")
+printf '%s\n' "  ${STATUS}"
+if [[ "${STATUS}" == "FAILED" ]]; then
+  echo "Control Tower did not start; remote log follows:" >&2
+  ssh "${REMOTE}" "tail -n 80 /tmp/ct.log" >&2 || true
+  exit 1
+fi
+node -e 'const s=JSON.parse(process.argv[1]); if(!s.ok || !s.data || !s.data.status) process.exit(1)' "${STATUS}"
 
 echo "==> Done"

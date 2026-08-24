@@ -112,6 +112,7 @@ interface StreamingMetrics {
   totalTokens: number;
   e2eLatencyMs: number;
   generatedText: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
 async function streamWithTiming(
@@ -131,6 +132,10 @@ async function streamWithTiming(
       messages: [{ role: 'user', content: prompt }],
       max_tokens: maxTokens,
       stream: true,
+      stream_options: { include_usage: true },
+      ignore_eos: true,
+      temperature: 0,
+      chat_template_kwargs: { enable_thinking: false },
     }),
   });
 
@@ -149,6 +154,7 @@ async function streamWithTiming(
   const itlMs: number[] = [];
   let totalTokens = 0;
   let generatedText = '';
+  let usage: StreamingMetrics['usage'];
 
   try {
     while (true) {
@@ -166,6 +172,8 @@ async function streamWithTiming(
 
         try {
           const parsed = JSON.parse(data);
+          if (parsed.usage) usage = parsed.usage;
+          if (parsed.usage?.completion_tokens !== undefined) totalTokens = parsed.usage.completion_tokens;
           const content = parsed.choices?.[0]?.delta?.content;
           if (typeof content !== 'string' || content.length === 0) continue;
 
@@ -189,7 +197,7 @@ async function streamWithTiming(
   }
 
   const e2eLatencyMs = (perfCounter() - start) * 1000;
-  return { ttftMs, itlMs, totalTokens, e2eLatencyMs, generatedText };
+  return { ttftMs, itlMs, totalTokens, e2eLatencyMs, generatedText, usage };
 }
 
 // ── Percentile helper ────────────────────────────────────────────────────────
@@ -247,9 +255,11 @@ export async function runBenchmark(params: {
   const prompt = customPrompt || generatePrompt(inputTokens);
 
   const perRound: DetailedBenchmarkResult['perRound'] = [];
+  const usagePromptTokens: number[] = [];
 
   for (let i = 0; i < rounds; i++) {
     const m = await streamWithTiming(port, model, prompt, outputTokens);
+    if (m.usage?.prompt_tokens !== undefined) usagePromptTokens.push(m.usage.prompt_tokens);
     perRound.push({
       ttftMs: m.ttftMs,
       tpotMs: m.totalTokens > 1
@@ -285,7 +295,7 @@ export async function runBenchmark(params: {
     e2eLatencyMs: Math.round(e2eLatencyMs),
     throughputTokPerSec: Math.round(throughputTokPerSec * 10) / 10,
     actualOutputTokens,
-    promptTokens: estimateTokens(prompt),
+    promptTokens: usagePromptTokens.length > 0 ? Math.round(avg(usagePromptTokens)) : estimateTokens(prompt),
     rounds,
     perRound,
     itl: {
