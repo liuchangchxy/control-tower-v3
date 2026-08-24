@@ -20,6 +20,13 @@ export interface AppDependencies extends RuntimeEndpointResolver {
   clientDist?: string;
 }
 
+export function normalizeReasoningEffort(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const request = body as Record<string, unknown>;
+  if (request.reasoning_effort !== 'high') return body;
+  return { ...request, reasoning_effort: 'xhigh' };
+}
+
 function proxyToVLLM(
   req: http.IncomingMessage & { body?: unknown },
   res: express.Response,
@@ -37,7 +44,7 @@ function proxyToVLLM(
     fwdHeaders[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
-  const rawBody = req.body;
+  const rawBody = normalizeReasoningEffort(req.body);
   const bodyStr = rawBody && typeof rawBody === 'object' && Object.keys(rawBody).length > 0
     ? JSON.stringify(rawBody)
     : undefined;
