@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createApp } from './app.js';
 import { resolveConfig } from './config.js';
-import { recoverFromState, getEndpoint } from './services/processManager.js';
+import { recoverFromState } from './services/processManager.js';
 
 export async function bootstrap(): Promise<http.Server> {
   const config = resolveConfig();
@@ -11,7 +11,6 @@ export async function bootstrap(): Promise<http.Server> {
   const app = createApp({
     home: config.home,
     clientDist: fs.existsSync(clientDist) ? clientDist : undefined,
-    getEndpoint,
   });
   await recoverFromState();
   const server = app.listen(config.port, () => {

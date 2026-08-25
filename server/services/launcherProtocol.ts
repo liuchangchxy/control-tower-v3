@@ -45,6 +45,17 @@ export interface LauncherHandoff {
   sequence?: number;
   launcherRevision?: string;
   capabilities?: LauncherCapabilities;
+  runId?: string;
+  stdoutFile?: string | null;
+  stderrFile?: string | null;
+  eventLog?: string | null;
+  postmortemDir?: string | null;
+  exitCode?: number | null;
+  exitSignal?: string | null;
+  heartbeat?: {
+    observedAt: number;
+    runtimeState: 'present' | 'absent' | 'indeterminate';
+  };
   backend?: LauncherBackendEvidence;
   /** Optional runtime evidence from identity-scoped reconciliation. */
   runtimeEvidence?: {
@@ -130,6 +141,15 @@ export function validateLauncherHandoff(value: unknown): asserts value is Launch
   if (handoff.status !== 'stopped' && (handoff.pid === null || handoff.pid === undefined)) throw new Error('Active launcher handoff has no PID');
   if (handoff.generation !== undefined && typeof handoff.generation !== 'string') throw new Error('Invalid launcher generation');
   if (handoff.sequence !== undefined && (!Number.isInteger(handoff.sequence) || handoff.sequence < 0)) throw new Error('Invalid launcher sequence');
+  if (handoff.runId !== undefined && (typeof handoff.runId !== 'string' || !handoff.runId)) throw new Error('Invalid launcher run ID');
+  for (const key of ['stdoutFile', 'stderrFile', 'eventLog', 'postmortemDir'] as const) {
+    if (handoff[key] !== undefined && handoff[key] !== null && typeof handoff[key] !== 'string') throw new Error(`Invalid launcher ${key}`);
+  }
+  if (handoff.exitCode !== undefined && handoff.exitCode !== null && (!Number.isInteger(handoff.exitCode))) throw new Error('Invalid launcher exit code');
+  if (handoff.exitSignal !== undefined && handoff.exitSignal !== null && typeof handoff.exitSignal !== 'string') throw new Error('Invalid launcher exit signal');
+  if (handoff.heartbeat !== undefined) {
+    if (!handoff.heartbeat || !Number.isFinite(handoff.heartbeat.observedAt) || !['present', 'absent', 'indeterminate'].includes(handoff.heartbeat.runtimeState)) throw new Error('Invalid launcher heartbeat');
+  }
   if (handoff.capabilities !== undefined) validateCapabilities(handoff.capabilities);
   if (handoff.backend !== undefined) validateBackendEvidence(handoff.backend);
   if (handoff.runtimeEvidence !== undefined) {

@@ -12,4 +12,12 @@ export interface PersistedState {
   startedAt: number | null;
   servedName: string | null;
   port: number;
+  runId?: string | null;
+  eventLog?: string | null;
+  stdoutFile?: string | null;
+  stderrFile?: string | null;
+  lastRuntimeObservationAt?: number | null;
+  exitCode?: number | null;
+  exitSignal?: string | null;
+  postmortemDir?: string | null;
 }

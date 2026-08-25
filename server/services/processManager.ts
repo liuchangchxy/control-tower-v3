@@ -1,7 +1,6 @@
 import { controlPlane } from './controlPlane.js';
 
 export const getStatus = () => controlPlane.getStatus();
-export const getEndpoint = () => controlPlane.getEndpoint();
 export const onProgress = controlPlane.onProgress.bind(controlPlane);
 export const onLogLine = controlPlane.onLogLine.bind(controlPlane);
 export const start = controlPlane.start.bind(controlPlane);

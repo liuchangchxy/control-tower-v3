@@ -36,26 +36,54 @@ describe('ControlPlane launcher boundary', () => {
   afterEach(() => { if (previous === undefined) delete process.env.CONTROL_TOWER_HOME; else process.env.CONTROL_TOWER_HOME = previous; fs.rmSync(home, { recursive: true, force: true }); });
 
   it('delegates lifecycle and persists launcher identity', async () => {
-    const calls: string[] = [];
+    const calls: Array<{ action: string; serviceScope?: string }> = [];
     const launcher = {
-      start: async () => { calls.push('start'); return handoff('ready'); },
+      start: async (overrides: { serviceScope?: string }) => { calls.push({ action: 'start', serviceScope: overrides.serviceScope }); return handoff('ready'); },
       status: async () => handoff('ready'),
-      stop: async () => { calls.push('stop'); return handoff('stopped', null); },
-      kill: async () => { calls.push('kill'); return handoff('stopped', null); },
-      restart: async () => { calls.push('restart'); return handoff('ready', 5252); },
+      stop: async () => { calls.push({ action: 'stop' }); return handoff('stopped', null); },
+      kill: async () => { calls.push({ action: 'kill' }); return handoff('stopped', null); },
+      restart: async (overrides: { serviceScope?: string }) => { calls.push({ action: 'restart', serviceScope: overrides.serviceScope }); return handoff('ready', 5252); },
     } as any;
     const plane = new ControlPlane({ launcher });
     await plane.start('user/fake.env');
-    expect(calls).toEqual(['start']);
+    expect(calls).toEqual([{ action: 'start', serviceScope: 'lan' }]);
     expect(plane.getStatus()).toMatchObject({ status: 'ready', pid: 4242, profile: 'user/fake.env' });
     await plane.restart();
-    expect(calls).toEqual(['start', 'restart']);
+    expect(calls).toEqual([
+      { action: 'start', serviceScope: 'lan' },
+      { action: 'restart', serviceScope: 'lan' },
+    ]);
     expect(plane.getStatus()).toMatchObject({ status: 'ready', pid: 5252 });
     await plane.stop();
-    expect(calls).toEqual(['start', 'restart', 'stop']);
+    expect(calls).toEqual([
+      { action: 'start', serviceScope: 'lan' },
+      { action: 'restart', serviceScope: 'lan' },
+      { action: 'stop' },
+    ]);
     expect(plane.getStatus().status).toBe('stopped');
   });
 
+  it('allows stop to interrupt a loading start', async () => {
+    let releaseStart!: () => void;
+    const launcher = {
+      start: () => new Promise(resolve => { releaseStart = () => resolve(handoff('ready')); }),
+      status: async () => handoff('ready'),
+      stop: async () => handoff('stopped', null),
+      kill: async () => handoff('stopped', null),
+      restart: async () => handoff('ready'),
+    } as any;
+    const plane = new ControlPlane({ launcher });
+
+    const starting = plane.start('user/fake.env');
+    await new Promise(resolve => setImmediate(resolve));
+    expect(plane.getStatus().status).toBe('starting');
+
+    await plane.stop();
+    releaseStart();
+    await starting;
+
+    expect(plane.getStatus()).toMatchObject({ status: 'stopped', pid: null, lifecycleConfirmed: true });
+  });
   it('keeps lifecycle identity when kill fails so the operation can be retried', async () => {
     const launcher = {
       start: async () => handoff('ready'),
@@ -75,6 +103,7 @@ describe('ControlPlane launcher boundary', () => {
       lifecycleConfirmed: false,
     });
   });
+
 
   it('cleans up only once after an authoritative stopped handoff', async () => {
     const launcher = {

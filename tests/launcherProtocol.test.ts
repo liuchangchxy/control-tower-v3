@@ -45,4 +45,11 @@ describe('launcher runtime evidence', () => {
   it('rejects malformed evidence instead of permitting unsafe cleanup', () => {
     expect(() => validateLauncherHandoff({ ...base, runtimeEvidence: { state: 'present' } })).toThrow();
   });
+
+  it('accepts optional run diagnostics and rejects malformed exit metadata', () => {
+    expect(() => validateLauncherHandoff({ ...base, runId: 'run-1', stdoutFile: '/tmp/out.log', stderrFile: '/tmp/err.log', eventLog: '/tmp/events.jsonl', postmortemDir: '/tmp/postmortem', exitCode: null, exitSignal: 'SIGTERM', heartbeat: { observedAt: 123, runtimeState: 'absent' } })).not.toThrow();
+    expect(() => validateLauncherHandoff({ ...base, exitCode: '137' })).toThrow('Invalid launcher exit code');
+    expect(() => validateLauncherHandoff({ ...base, heartbeat: { observedAt: 123, runtimeState: 'broken' } })).toThrow('Invalid launcher heartbeat');
+  });
+
 });

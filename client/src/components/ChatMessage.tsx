@@ -53,7 +53,7 @@ export const ChatMessage = memo(function ChatMessage({ message }: Props) {
         />
         {!isUser && message.ttftMs !== undefined && (
           <div className="mt-1.5 text-xs text-text-muted font-mono border-t border-border/50 pt-1.5">
-            TTFT: {message.ttftMs.toFixed(0)}ms | {message.tokPerSec?.toFixed(1) ?? '?'} tok/s | {message.tokenCount ?? '?'} tokens
+            TTFT: {Math.round(message.ttftMs)}ms | {message.tokPerSec != null && message.tokPerSec > 0 ? `${message.tokPerSec.toFixed(1)} tok/s` : 'tok/s: N/A'} | {message.tokenCount ?? 'N/A'} tokens
           </div>
         )}
       </div>

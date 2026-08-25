@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Project root: `C:/Users/chang/control-tower-v2/` (reuse v2 codebase)
+- Project root: `C:/Users/chang/vllm-2080ti-control-panel/` (reuse v2 codebase)
 - All paths absolute; `CONTROL_TOWER_HOME` env overrides default
 - TypeScript strict mode, no `any` unless necessary
 - API responses: `{ok: true, data: T}` or `{ok: false, error: string}`
@@ -37,7 +37,7 @@
 
 - [ ] **Step 1: Verify v2 structure exists**
 
-Run: `ls C:/Users/chang/control-tower-v2/`
+Run: `ls C:/Users/chang/vllm-2080ti-control-panel/`
 Expected: server/, client/, tests/, package.json exist
 
 - [ ] **Step 2: Update package.json with new dependencies**
@@ -88,7 +88,7 @@ interface VLLMMetrics {
 
 - [ ] **Step 4: Verify TypeScript compiles**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx tsc --noEmit`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx tsc --noEmit`
 Expected: no errors
 
 - [ ] **Step 5: Commit**
@@ -107,7 +107,7 @@ git commit -m "feat(v3): add new types for experiments, benchmarks, metrics"
 
 - [ ] **Step 1: Run existing tests**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx vitest run tests/envFile.test.ts`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run tests/envFile.test.ts`
 Expected: 6/6 PASS
 
 - [ ] **Step 2: If tests fail, fix and commit**
@@ -121,7 +121,7 @@ Expected: 6/6 PASS
 
 - [ ] **Step 1: Run existing tests**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx vitest run tests/logParser.test.ts`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run tests/logParser.test.ts`
 Expected: 9/9 PASS
 
 ---
@@ -138,7 +138,7 @@ Expected: 9/9 PASS
 
 - [ ] **Step 1: Run existing tests**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx vitest run tests/profileManager.test.ts`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run tests/profileManager.test.ts`
 Expected: 9/9 PASS
 
 - [ ] **Step 2: Add validation for all 65 parameters in createProfile**
@@ -201,7 +201,7 @@ vllm:kv_cache_usage_perc 0.75`;
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx vitest run tests/vllmMetrics.test.ts`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run tests/vllmMetrics.test.ts`
 Expected: FAIL
 
 - [ ] **Step 3: Implement parsePrometheusMetrics**
@@ -269,7 +269,7 @@ export function startMetricsScraping(port: number = 8000): void {
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd C:/Users/chang/control-tower-v2 && npx vitest run tests/vllmMetrics.test.ts`
+Run: `cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run tests/vllmMetrics.test.ts`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -619,7 +619,7 @@ profilesRouter.post('/validate', async (req, res) => {
 - [ ] **Step 1: Install new deps**
 
 ```bash
-cd C:/Users/chang/control-tower-v2/client && npm install chart.js react-chartjs-2
+cd C:/Users/chang/vllm-2080ti-control-panel/client && npm install chart.js react-chartjs-2
 ```
 
 - [ ] **Step 2: Commit**
@@ -789,7 +789,7 @@ Bar chart (tok/s comparison), line chart (history)
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cd C:/Users/chang/control-tower-v2 && npx vitest run
+cd C:/Users/chang/vllm-2080ti-control-panel && npx vitest run
 ```
 
 - [ ] **Step 2: Build server**
@@ -813,25 +813,25 @@ cd client && npm run build
 - [ ] **Step 1: Copy to debian103**
 
 ```bash
-scp -r C:/Users/chang/control-tower-v2 debian103:~/control-tower-v3
+scp -r C:/Users/chang/vllm-2080ti-control-panel debian103:/home/chang/vllm-2080ti-control-panel
 ```
 
 - [ ] **Step 2: Install deps**
 
 ```bash
-ssh debian103 "cd ~/control-tower-v3 && npm install && cd client && npm install"
+ssh debian103 "cd /home/chang/vllm-2080ti-control-panel && npm install && cd client && npm install"
 ```
 
 - [ ] **Step 3: Build**
 
 ```bash
-ssh debian103 "cd ~/control-tower-v3 && npm run build"
+ssh debian103 "cd /home/chang/vllm-2080ti-control-panel && npm run build"
 ```
 
 - [ ] **Step 4: Stop old tower, start new**
 
 ```bash
-ssh debian103 "pkill -f 'server.py'; cd ~/control-tower-v3 && nohup node dist/server/index.js &"
+ssh debian103 "cd /home/chang/vllm-2080ti-control-panel && nohup node dist/server/index.js &"
 ```
 
 - [ ] **Step 5: Verify**

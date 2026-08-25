@@ -18,8 +18,10 @@ function parsePersistedState(value: unknown): PersistedState | null {
   const validPort = typeof parsed.port === 'number' && Number.isInteger(parsed.port) && parsed.port >= 1 && parsed.port <= 65535;
   const validStartedAt = parsed.startedAt === null || (typeof parsed.startedAt === 'number' && Number.isFinite(parsed.startedAt) && parsed.startedAt >= 0);
   if (!validPid || !validPgid || !validPort || !validStartedAt) return null;
-  const strings = [parsed.profile, parsed.profilePath, parsed.logFile, parsed.servedName];
+  const strings = [parsed.profile, parsed.profilePath, parsed.logFile, parsed.servedName, parsed.runId, parsed.eventLog, parsed.stdoutFile, parsed.stderrFile, parsed.exitSignal, parsed.postmortemDir];
   if (strings.some(value => value !== null && value !== undefined && typeof value !== 'string')) return null;
+  if (parsed.exitCode !== undefined && parsed.exitCode !== null && !Number.isInteger(parsed.exitCode)) return null;
+  if (parsed.lastRuntimeObservationAt !== undefined && parsed.lastRuntimeObservationAt !== null && (!Number.isFinite(parsed.lastRuntimeObservationAt) || parsed.lastRuntimeObservationAt < 0)) return null;
   return {
     pid: parsed.pid ?? null,
     pgid: parsed.pgid ?? null,
@@ -29,6 +31,14 @@ function parsePersistedState(value: unknown): PersistedState | null {
     startedAt: parsed.startedAt ?? null,
     servedName: parsed.servedName ?? null,
     port: parsed.port!,
+    runId: parsed.runId ?? null,
+    eventLog: parsed.eventLog ?? null,
+    stdoutFile: parsed.stdoutFile ?? null,
+    stderrFile: parsed.stderrFile ?? null,
+    lastRuntimeObservationAt: parsed.lastRuntimeObservationAt ?? null,
+    exitCode: parsed.exitCode ?? null,
+    exitSignal: parsed.exitSignal ?? null,
+    postmortemDir: parsed.postmortemDir ?? null,
   };
 }
 

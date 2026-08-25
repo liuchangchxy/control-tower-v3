@@ -1,6 +1,6 @@
 #!/bin/bash
-# E2E test for Control Tower v3
-# Run: ssh debian103 "cd ~/control-tower-v3 && bash tests/e2e.sh"
+# E2E test for the vLLM 2080Ti Control Panel.
+# Run: ssh debian103 "cd /home/chang/vllm-2080ti-control-panel && bash tests/e2e.sh"
 
 set -uo pipefail
 

@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
-import type * as http from 'node:http';
 import { serverRouter } from './routes/server.js';
 import { profilesRouter } from './routes/profiles.js';
 import { gpuRouter } from './routes/gpu.js';
@@ -11,85 +10,18 @@ import { experimentsRouter } from './routes/experiments.js';
 import { settingsRouter } from './routes/settings.js';
 import { chatHistoryRouter } from './routes/chatHistory.js';
 
-export interface RuntimeEndpointResolver {
-  getEndpoint(): string;
-}
-
-export interface AppDependencies extends RuntimeEndpointResolver {
+export interface AppDependencies {
   home: string;
   clientDist?: string;
-}
-
-export function normalizeReasoningEffort(body: unknown): unknown {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
-  const request = body as Record<string, unknown>;
-  const normalized: Record<string, unknown> = { ...request };
-
-  if (request.reasoning_effort === 'high') {
-    normalized.reasoning_effort = 'xhigh';
-  }
-
-  const outputConfig = request.output_config;
-  if (outputConfig && typeof outputConfig === 'object' && !Array.isArray(outputConfig)) {
-    const config = outputConfig as Record<string, unknown>;
-    if (config.effort === 'high') {
-      normalized.output_config = { ...config, effort: 'xhigh' };
-    }
-  }
-
-  return normalized;
-}
-
-function proxyToVLLM(
-  req: http.IncomingMessage & { body?: unknown },
-  res: express.Response,
-  runtime: RuntimeEndpointResolver,
-): void {
-  const reqPath = req.url ?? '/';
-  if (reqPath.includes('..')) {
-    res.status(400).json({ ok: false, error: 'Invalid path' });
-    return;
-  }
-  const url = runtime.getEndpoint() + '/v1' + reqPath;
-  const fwdHeaders: Record<string, string> = {};
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (!value || ['connection', 'transfer-encoding', 'keep-alive', 'host', 'content-length'].includes(key)) continue;
-    fwdHeaders[key] = Array.isArray(value) ? value.join(', ') : value;
-  }
-
-  const rawBody = normalizeReasoningEffort(req.body);
-  const bodyStr = rawBody && typeof rawBody === 'object' && Object.keys(rawBody).length > 0
-    ? JSON.stringify(rawBody)
-    : undefined;
-  if (bodyStr) fwdHeaders['content-type'] = fwdHeaders['content-type'] || 'application/json';
-
-  fetch(url, { method: req.method, headers: fwdHeaders, body: bodyStr })
-    .then(upstream => {
-      res.status(upstream.status);
-      upstream.headers.forEach((value, key) => {
-        if (!['connection', 'transfer-encoding', 'keep-alive'].includes(key)) res.setHeader(key, value);
-      });
-      const reader = upstream.body?.getReader();
-      if (!reader) { res.end(); return; }
-      const pump = (): void => {
-        reader.read().then(({ done, value }) => {
-          if (done) { res.end(); return; }
-          res.write(value);
-          pump();
-        }).catch(() => res.end());
-      };
-      pump();
-    })
-    .catch(err => {
-      console.error(`[proxy] ${req.method} ${url} failed: ${err.message}`);
-      if (!res.headersSent) res.status(502).json({ ok: false, error: `vLLM unreachable: ${err.message}` });
-      else res.end();
-    });
 }
 
 export function createApp(deps: AppDependencies): express.Express {
   const app = express();
   app.use(cors({ origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/192\.168\.\d+\.\d+:\d+$/, /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/] }));
+  app.use('/v1', (_req, res) => res.status(410).json({
+    ok: false,
+    error: 'The Control Tower no longer proxies the model API. Connect directly to the vLLM endpoint shown in the dashboard.',
+  }));
   // Claude Code requests include long tool schemas and conversation history.
   // This is an HTTP-body limit, not the model's token context limit.
   app.use(express.json({ limit: '32mb' }));
@@ -106,7 +38,6 @@ export function createApp(deps: AppDependencies): express.Express {
   app.use('/api/experiments', experimentsRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/chat-history', chatHistoryRouter);
-  app.use('/v1', (req, res) => proxyToVLLM(req, res, deps));
 
   const clientDist = deps.clientDist ?? path.join(deps.home, 'client', 'dist');
   if (clientDist) {

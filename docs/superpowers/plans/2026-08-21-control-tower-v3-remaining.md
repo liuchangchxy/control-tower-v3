@@ -8,7 +8,7 @@
 
 ## Global Constraints
 
-- Project: `C:/Users/chang/control-tower-v2/`
+- Project: Windows checkout for source editing; canonical Debian checkout `/home/chang/vllm-2080ti-control-panel` for testing, building, and deployment
 - TypeScript strict mode
 - All tests must pass after each task
 - Deploy to debian103 after each batch

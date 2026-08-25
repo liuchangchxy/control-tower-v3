@@ -96,7 +96,7 @@ Test script: `tests/e2e.sh` (bash, runs from Windows via SSH)
 ```bash
 #!/bin/bash
 # E2E test for Control Tower v3
-# Run: ssh debian103 "cd ~/control-tower-v3 && bash tests/e2e.sh"
+# Run: ssh debian103 "cd /home/chang/vllm-2080ti-control-panel && bash tests/e2e.sh"
 
 BASE="http://localhost:9092"
 PROFILE="qwen27b/normal/int4/int8kv-256K-nomtp-text-only.env"
@@ -181,7 +181,7 @@ exit $FAIL
 
 ```bash
 # On debian103:
-cd ~/control-tower-v3
+cd /home/chang/vllm-2080ti-control-panel
 bash tests/e2e.sh
 
 # Expected output:

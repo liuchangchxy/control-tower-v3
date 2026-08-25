@@ -30,7 +30,8 @@ The Control Panel calls the canonical `launcher.sh` and consumes its handoff. It
 - Startup progress and launcher-owned log viewer
 - Dual-GPU monitoring and VRAM/utilization telemetry
 - Prometheus vLLM metrics and throughput history
-- Streaming chat validation through the model API
+- Direct vLLM endpoint information for external clients
+- Tower lifecycle, logs, GPU, metrics, profiles, and experiments
 - Manual and batch benchmark workflows with token/timing fields
 - Experiment history, profile rollback, and startup error diagnosis
 - SSE updates for progress, logs, GPU state, and metrics
@@ -46,8 +47,8 @@ vLLM 2080Ti Control Panel
   ├── Express/TypeScript server
   ├── ControlPlane + launcherClient
   ├── metrics, GPU, benchmark, profile, log, experiment services
-  └── /v1 proxy
-        │ canonical launcher handoff
+  └── direct vLLM endpoint information
+        │ launcher lifecycle handoff
         ▼
 /home/chang/vLLM-2080Ti-Definitive-0.2.1-pre2/launcher.sh
         │
@@ -55,27 +56,31 @@ vLLM 2080Ti Control Panel
 vLLM-2080Ti-Definitive runtime → dual RTX 2080Ti + NVLink
 ```
 
-## Linux-only development
+## Two-host development workflow
 
-The only development, test, build, and runtime checkout is:
+Use Windows for source editing with Claude Code and the GUI CC Switch provider router. Use Debian `debian103` as the canonical build, test, deployment, and runtime environment:
+
+```text
+Windows: Claude Code + CC Switch + source editing
+    │ GitHub
+Debian: fetch + test + build + deploy + Control Panel runtime
+```
+
+The Debian checkout is `/home/chang/vllm-2080ti-control-panel`. GitHub is the remote source of truth. Do not copy a Windows source archive over the Debian Git checkout or treat Windows build output as a deployment artifact.
 
 ```bash
 cd /home/chang/vllm-2080ti-control-panel
-```
-
-GitHub is the remote source of truth. Make changes on Debian, run checks, commit, push, and run from the exact pushed commit:
-
-```bash
 export PATH="$HOME/local/node/bin:$PATH"
 npm install
 npm --prefix client install
 npx tsc -p tsconfig.server.json --noEmit
 npx vitest run --config vitest.config.ts
+git diff --check
 npm run build
 ./deploy.sh
 ```
 
-Windows is not a development checkout for this project.
+Windows is not a second Control Panel runtime or a vLLM runtime checkout. The official CC Switch GUI is intentionally used on Windows; headless Debian does not run it.
 
 ## Runtime configuration
 
@@ -101,9 +106,9 @@ Before calling a change complete, verify:
 - Linux Git HEAD equals the pushed GitHub commit
 - tracked source is clean; only runtime artifacts remain untracked
 - `/api/server/status` and canonical launcher handoff agree
-- `/v1/models` and a complete `/v1/chat/completions` work through the panel
-- streaming completions terminate and include usage/timing data
-- start, stop, kill, retry, restart, and recovery are tested
+- The direct vLLM `/v1` endpoint is reachable from the client host
+- Tower `/api/server/status` and monitoring endpoints remain available
+- Tower does not proxy or transform model API requests
 - launcher-owned logs show the selected backend evidence
 - kill is confirmed by launcher state, process identity, and GPU memory behavior
 
