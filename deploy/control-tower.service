@@ -1,0 +1,22 @@
+[Unit]
+Description=vLLM 2080Ti Control Panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chang
+Group=chang
+WorkingDirectory=/home/chang/vllm-2080ti-control-panel
+Environment=NODE_ENV=production
+Environment=HOME=/home/chang
+Environment=PATH=/home/chang/local/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/chang/local/node/bin/node /home/chang/vllm-2080ti-control-panel/dist/server/index.js
+Restart=on-failure
+RestartSec=5
+KillMode=process
+TimeoutStopSec=30
+SyslogIdentifier=control-tower
+
+[Install]
+WantedBy=multi-user.target

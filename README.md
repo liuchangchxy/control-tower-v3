@@ -80,6 +80,15 @@ npm run build
 ./deploy.sh
 ```
 
+`./deploy.sh` installs and enables `control-tower.service`, which starts the Control Panel automatically at Debian boot and restarts it after an unexpected failure. The service runs as `chang` from the canonical checkout and writes its output to the system journal:
+
+```bash
+sudo systemctl status control-tower.service
+sudo journalctl -u control-tower.service -f
+```
+
+Boot autostart applies only to the Control Panel. The Control Panel does not start vLLM during boot; vLLM remains owned by the canonical `launcher.sh` lifecycle and starts only when requested through the panel.
+
 Windows is not a second Control Panel runtime or a vLLM runtime checkout. The official CC Switch GUI is intentionally used on Windows; headless Debian does not run it.
 
 ## Runtime configuration
